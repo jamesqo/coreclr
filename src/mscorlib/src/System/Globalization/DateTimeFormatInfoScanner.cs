@@ -545,10 +545,7 @@ namespace System.Globalization
             if (m_dateWords != null && m_dateWords.Count > 0)
             {
                 result = new String[m_dateWords.Count];
-                for (i = 0; i < m_dateWords.Count; i++)
-                {
-                    result[i] = m_dateWords[i];
-                }
+                m_dateWords.CopyTo(result);
             }
             return (result);
         }
