@@ -154,7 +154,7 @@ build_mscorlib()
 
     # Pull NuGet.exe down if we don't have it already
     if [ ! -e "$__NuGetPath" ]; then
-        hash curl 2>/dev/null || hash wget 2>/dev/null || { echo >&2 echo "cURL or wget is required to build mscorlib." ; exit 1; }
+        hash curl 2>/dev/null || hash wget 2>/dev/null || { echo >&2 "cURL or wget is required to build mscorlib." ; exit 1; }
 
         echo "Restoring NuGet.exe..."
 
