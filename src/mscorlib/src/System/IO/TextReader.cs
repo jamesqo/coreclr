@@ -160,19 +160,26 @@ namespace System.IO {
         //
         public virtual String ReadLine() 
         {
-            StringBuilder sb = new StringBuilder();
-            while (true) {
-                int ch = Read();
-                if (ch == -1) break;
-                if (ch == '\r' || ch == '\n') 
+            StringBuilder sb = StringBuilderCache.Acquire();
+            try
+            {
+                while (true)
                 {
-                    if (ch == '\r' && Peek() == '\n') Read();
-                    return sb.ToString();
+                    int ch = Read();
+                    if (ch == -1) break;
+                    if (ch == '\r' || ch == '\n')
+                    {
+                        if (ch == '\r' && Peek() == '\n') Read();
+                        return StringBuilderCache.GetStringAndRelease(sb);
+                    }
+                    sb.Append((char)ch);
                 }
-                sb.Append((char)ch);
+                return sb.Length > 0 ? sb.ToString() : null;
             }
-            if (sb.Length > 0) return sb.ToString();
-            return null;
+            finally
+            {
+                StringBuilderCache.Release(sb);
+            }
         }
 
         #region Task based Async APIs
