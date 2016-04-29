@@ -298,10 +298,10 @@ namespace System.Collections.Generic
     }
 
 #if FEATURE_CORECLR
-    // NonRandomizedStringEqualityComparer is the comparer used by default with the Dictionary<string,...> 
+    // NonRandomizedStringEqualityComparer is the comparer used by default with the Dictionary<string, ...> 
     // As the randomized string hashing is turned on by default on coreclr, we need to keep the performance not affected 
-    // as much as possible in the main stream scenarios like Dictionary<string,…>
-    // We use NonRandomizedStringEqualityComparer as default comparer as it doesn’t use the randomized string hashing which 
+    // as much as possible in the main stream scenarios like Dictionary<string, ...>
+    // We use NonRandomizedStringEqualityComparer as default comparer as it doesn't use the randomized string hashing which 
     // keep the perofrmance not affected till we hit collision threshold and then we switch to the comparer which is using 
     // randomized string hashing GenericEqualityComparer<string>
 

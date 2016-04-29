@@ -836,65 +836,16 @@ namespace System {
         // they will return the same hash code.
         [System.Security.SecuritySafeCritical]  // auto-generated
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
-        public override int GetHashCode() {
-
+        public override int GetHashCode()
+        {
 #if FEATURE_RANDOMIZED_STRING_HASHING
-            if(HashHelpers.s_UseRandomizedStringHashing)
+            if (HashHelpers.s_UseRandomizedStringHashing)
             {
                 return InternalMarvin32HashString(this, this.Length, 0);
             }
 #endif // FEATURE_RANDOMIZED_STRING_HASHING
 
-            unsafe {
-                fixed (char* src = &m_firstChar) {
-                    Contract.Assert(src[this.Length] == '\0', "src[this.Length] == '\\0'");
-                    Contract.Assert( ((int)src)%4 == 0, "Managed string should start at 4 bytes boundary");
-
-#if WIN32
-                    int hash1 = (5381<<16) + 5381;
-#else
-                    int hash1 = 5381;
-#endif
-                    int hash2 = hash1;
-
-#if WIN32
-                    // 32 bit machines.
-                    int* pint = (int *)src;
-                    int len = this.Length;
-                    while (len > 2)
-                    {
-                        hash1 = ((hash1 << 5) + hash1 + (hash1 >> 27)) ^ pint[0];
-                        hash2 = ((hash2 << 5) + hash2 + (hash2 >> 27)) ^ pint[1];
-                        pint += 2;
-                        len  -= 4;
-                    }
-
-                    if (len > 0)
-                    {
-                        hash1 = ((hash1 << 5) + hash1 + (hash1 >> 27)) ^ pint[0];
-                    }
-#else
-                    int     c;
-                    char *s = src;
-                    while ((c = s[0]) != 0) {
-                        hash1 = ((hash1 << 5) + hash1) ^ c;
-                        c = s[1];
-                        if (c == 0)
-                            break;
-                        hash2 = ((hash2 << 5) + hash2) ^ c;
-                        s += 2;
-                    }
-#endif
-#if DEBUG
-                    // We want to ensure we can change our hash function daily.
-                    // This is perfectly fine as long as you don't persist the
-                    // value from GetHashCode to disk or count on String A 
-                    // hashing before string B.  Those are bugs in your code.
-                    hash1 ^= ThisAssembly.DailyBuildNumber;
-#endif
-                    return hash1 + (hash2 * 1566083941);
-                }
-            }
+            return GetLegacyNonRandomizedHashCode();
         }
 
         // Use this if and only if you need the hashcode to not change across app domains (e.g. you have an app domain agile
@@ -931,15 +882,17 @@ namespace System {
                         hash1 = ((hash1 << 5) + hash1 + (hash1 >> 27)) ^ pint[0];
                     }
 #else
-                    int     c;
-                    char *s = src;
-                    while ((c = s[0]) != 0) {
-                        hash1 = ((hash1 << 5) + hash1) ^ c;
-                        c = s[1];
-                        if (c == 0)
-                            break;
-                        hash2 = ((hash2 << 5) + hash2) ^ c;
+                    char* s = src;
+                    while ((s[0] & s[1]) != 0 || (s[0] != 0 && s[1] != 0))
+                    {
+                        hash1 = ((hash1 << 5) + hash1) ^ s[0];
+                        hash2 = ((hash2 << 5) + hash2) ^ s[1];
                         s += 2;
+                    }
+                    
+                    if (s[0] != 0)
+                    {
+                        hash1 = ((hash1 << 5) + hash1) ^ s[0];
                     }
 #endif
 #if DEBUG
