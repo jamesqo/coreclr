@@ -1503,8 +1503,10 @@ FCIMPL2_IV(void, ArrayNative::InitializeArray, ArrayBase* pArrayRef, FCALLRuntim
     // the array. Basically the data being published is can be accessed by anyone with the proper
     // permissions (C# marks these as assembly visibility, and thus are protected from outside
     // snooping)
+    
+    MethodTable* pArrayMT = arr->GetMethodTable();
 
-    if (!CorTypeInfo::IsPrimitiveType(arr->GetArrayElementType()) && !arr->GetArrayElementTypeHandle().IsEnum())
+    if (!pArrayMT->IsTruePrimitive() && !pArrayMT->IsEnum())
         COMPlusThrow(kArgumentException);
 
     SIZE_T dwCompSize = arr->GetComponentSize();
