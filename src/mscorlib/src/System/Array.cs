@@ -1562,7 +1562,7 @@ namespace System {
         [System.Security.SecuritySafeCritical]  // auto-generated
         [ReliabilityContract(Consistency.MayCorruptInstance, Cer.MayFail)]
         public static void Reverse(Array array, int index, int length) {
-            if (array==null) 
+            if (array==null)
                 throw new ArgumentNullException("array");
             int lowerBound = array.GetLowerBound(0);
             if (index < lowerBound || length < 0)
@@ -1573,9 +1573,10 @@ namespace System {
                 throw new RankException(Environment.GetResourceString("Rank_MultiDimNotSupported"));
             Contract.EndContractBlock();
 
-            bool r = TrySZReverse(array, index, length);
-            if (r)
+            if (length <= 1 || (lowerBound == 0 && TrySZReverse(array, index, length)))
+            {
                 return;
+            }
 
             int i = index;
             int j = index + length - 1;

@@ -374,12 +374,8 @@ FCIMPL3(FC_BOOL_RET, ArrayHelper::TrySZReverse, ArrayBase * array, UINT32 index,
 
     VALIDATEOBJECT(array);
     _ASSERTE(array != NULL);
-
-    // <TODO>@TODO: Eventually, consider adding support for single dimension arrays with
-    // non-zero lower bounds.  VB might care.  </TODO>
-    if (array->GetRank() != 1 || array->GetLowerBoundsPtr()[0] != 0)
-        FC_RETURN_BOOL(FALSE);
-
+    _ASSERTE(array->GetRank() == 1); // Should be single-dimensional...
+    _ASSERTE(array->GetLowerBoundsPtr()[0] == 0); // and zero-based (aka SZ array)
 	_ASSERTE(index <= array->GetNumComponents());
 	_ASSERTE(count <= array->GetNumComponents());
 	_ASSERTE(array->GetNumComponents() >= index + count);
