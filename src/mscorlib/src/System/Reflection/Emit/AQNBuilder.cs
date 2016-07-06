@@ -12,7 +12,7 @@ using System.Security;
 namespace System.Reflection.Emit
 {
     // TypeNameBuilder is NOT thread safe NOR reliable
-    internal class TypeNameBuilder
+    internal class TypeNameBuilder : IDisposable
     {
         internal enum Format
         {
@@ -91,13 +91,13 @@ namespace System.Reflection.Emit
                 if (!type.IsGenericTypeDefinition && type.ContainsGenericParameters)
                     return null;
             }
-            
-            TypeNameBuilder tnb = new TypeNameBuilder(CreateTypeNameBuilder());
-            tnb.Clear();
-            tnb.ConstructAssemblyQualifiedNameWorker(type, format);
-            string toString = tnb.ToString();
-            tnb.Dispose();
-            return toString;
+
+            using (var tnb = new TypeNameBuilder(CreateTypeNameBuilder()))
+            {
+                tnb.Clear();
+                tnb.ConstructAssemblyQualifiedNameWorker(type, format);
+                return tnb.ToString();
+            }
         }
         #endregion
 
@@ -108,7 +108,7 @@ namespace System.Reflection.Emit
         #region Constructor
         private TypeNameBuilder(IntPtr typeNameBuilder) { m_typeNameBuilder = typeNameBuilder; }
         [System.Security.SecurityCritical]  // auto-generated
-        internal void Dispose() { ReleaseTypeNameBuilder(m_typeNameBuilder); }
+        public void Dispose() { ReleaseTypeNameBuilder(m_typeNameBuilder); }
         #endregion
 
         #region private Members
