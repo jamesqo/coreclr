@@ -878,7 +878,7 @@ namespace System {
 #if BIT64
                     int hash1 = 5381;
 #else // !BIT64 (32)
-                    int hash1 = (5381<<16) + 5381;
+                    int hash1 = (5381 << 16) | 5381;
 #endif
                     int hash2 = hash1;
 
@@ -899,15 +899,22 @@ namespace System {
                     int len = this.Length;
                     while (len > 2)
                     {
-                        hash1 = ((hash1 << 5) + hash1 + (hash1 >> 27)) ^ pint[0];
-                        hash2 = ((hash2 << 5) + hash2 + (hash2 >> 27)) ^ pint[1];
+                        // jit optimizes the following to use a single rol instruction
+                        // See dotnet/coreclr#1830
+                        uint rol1 = ((uint)hash1 << 5) | ((uint)hash1 >> 27);
+                        hash1 = ((int)rol1 + hash1) ^ pint[0];
+
+                        uint rol2 = ((uint)hash2 << 5) | ((uint)hash2 >> 27);
+                        hash2 = ((int)rol2 + hash2) ^ pint[1];
+
                         pint += 2;
                         len  -= 4;
                     }
 
                     if (len > 0)
                     {
-                        hash1 = ((hash1 << 5) + hash1 + (hash1 >> 27)) ^ pint[0];
+                        uint rol1 = ((uint)hash1 << 5) | ((uint)hash1 >> 27);
+                        hash1 = ((int)rol1 + hash1) ^ pint[0];
                     }
 #endif
 #if DEBUG
