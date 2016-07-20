@@ -496,9 +496,9 @@ namespace System {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [MethodImplAttribute(MethodImplOptions.NoInlining)]
 #if BIT64
-        private unsafe static void _Memmove(byte* dest, byte* src, ulong len)
+        internal unsafe static void _Memmove(byte* dest, byte* src, ulong len)
 #else
-        private unsafe static void _Memmove(byte* dest, byte* src, uint len)
+        internal unsafe static void _Memmove(byte* dest, byte* src, uint len)
 #endif
         {
             __Memmove(dest, src, len);
