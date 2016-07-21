@@ -11,6 +11,9 @@
 **
 **
 ===========================================================*/
+
+using Internal.Runtime;
+
 namespace System {
     using System.Text;
     using System;
@@ -2687,7 +2690,7 @@ namespace System {
                 {
                     fixed (char* src = &m_firstChar)
                     {
-                        wstrcpy(dst, src, oldLength);
+                        MemoryUtilities.StringAlignedCopy(dst, src, oldLength);
                     }
                     for (int i = 0; i < count; i++)
                         dst[oldLength + i] = paddingChar;
@@ -2981,7 +2984,7 @@ namespace System {
                     {
                         fixed (char* dst = &result.m_firstChar)
                         {
-                            wstrcpy(dst, srcThis, startIndex);
+                            MemoryUtilities.StringAlignedCopy(dst, srcThis, startIndex);
                             wstrcpy(dst + startIndex, srcInsert, insertLength);
                             wstrcpy(dst + startIndex + insertLength, srcThis + startIndex, oldLength - startIndex);
                         }
@@ -3037,7 +3040,7 @@ namespace System {
                         //Copy the characters already proven not to match.
                         if (copyLength > 0)
                         {
-                            wstrcpy(pResult, pChars, copyLength);
+                            MemoryUtilities.StringAlignedCopy(pResult, pChars, copyLength);
                         }
 
                         //Copy the remaining characters, doing the replacement as we go.
@@ -3108,7 +3111,7 @@ namespace System {
                 {
                     fixed (char* dst = &result.m_firstChar)
                     {
-                        wstrcpy(dst, src, startIndex);
+                        MemoryUtilities.StringAlignedCopy(dst, src, startIndex);
                         wstrcpy(dst + startIndex, src + startIndex + count, newLength - startIndex);
                     }
                 }
@@ -3214,7 +3217,7 @@ namespace System {
 
             fixed(char* dest = &result.m_firstChar)
                 fixed(char* src = &str.m_firstChar) {
-                     wstrcpy(dest, src, length);
+                     MemoryUtilities.StringAlignedCopy(dest, src, length);
                 }
              return result;
         }
