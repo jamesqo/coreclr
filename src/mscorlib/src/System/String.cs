@@ -3412,7 +3412,19 @@ namespace System {
                 // the strings. This will ensure that the GC can collect
                 // them once they're no longer being used, improving
                 // memory consumption.
-                ArrayCache<string>.Release(strings, clearArray: true);
+
+                // Note that we only do this if the array is actually
+                // returned to the pool, otherwise it will be unreachable
+                // after this method, its strings will be GC'd anyway,
+                // and we avoid a call to Array.Clear.
+
+                if (ArrayCache<string>.TryRelease(strings))
+                {
+                    // Since we only used the entries up to args.Length,
+                    // just clear that rather than the whole array
+
+                    Array.Clear(strings, 0, args.Length);
+                }
             }
         }
 
