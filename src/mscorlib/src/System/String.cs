@@ -3341,37 +3341,79 @@ namespace System {
         }
 
         [System.Security.SecuritySafeCritical]
-        public static String Concat(params Object[] args) {
-            if (args==null) {
+        public static string Concat(params object[] args)
+        {
+            if (args == null)
+            {
                 throw new ArgumentNullException("args");
             }
             Contract.Ensures(Contract.Result<String>() != null);
             Contract.EndContractBlock();
-    
-            String[] sArgs = new String[args.Length];
-            int totalLength=0;
-            
-            for (int i=0; i<args.Length; i++) {
-                object value = args[i];
-                sArgs[i] = ((value==null)?(String.Empty):(value.ToString()));
-                if (sArgs[i] == null) sArgs[i] = String.Empty; // value.ToString() above could have returned null
-                totalLength += sArgs[i].Length;
-                // check for overflow
-                if (totalLength < 0) {
-                    throw new OutOfMemoryException();
-                }
-            }
 
-            string result = FastAllocateString(totalLength);
-            int currPos = 0;
-            for (int i = 0; i < sArgs.Length; i++)
+            // We need to get an intermediary string array
+            // to fill with each of the args' ToString(),
+            // and then just concat that in one operation.
+
+            // This way we avoid any intermediary string representations,
+            // or buffer resizing if we use StringBuilder (although the
+            // latter case is partially alleviated due to StringBuilder's
+            // linked-list style implementation)
+
+            // Since we're not exposing this array publicly,
+            // we cant rent/return it to ArrayCache which will
+            // reuse existing arrays if avaiable, reducing allocations.
+
+            string[] strings = ArrayCache<string>.Acquire(args.Length);
+
+            try
             {
-                Contract.Assert(currPos <= totalLength - sArgs[i].Length, "[String.Concat](currPos <= totalLength - sArgs[i].Length)");
-                FillStringChecked(result, currPos, sArgs[i]);
-                currPos += sArgs[i].Length;
-            }
+                int totalLength = 0;
 
-            return result;
+                for (int i = 0; i < args.Length; i++)
+                {
+                    object value = args[i];
+
+                    string toString = value?.ToString() ?? string.Empty; // We need to handle both the cases when value or value.ToString() is null
+                    strings[i] = toString;
+
+                    totalLength += toString.Length;
+
+                    // Check for overflow
+                    if (totalLength < 0)
+                    {
+                        throw new OutOfMemoryException();
+                    }
+                }
+
+                // If all of the ToStrings are null/empty, just return string.Empty
+                if (totalLength == 0)
+                {
+                    return string.Empty;
+                }
+
+                string result = FastAllocateString(totalLength);
+                int position = 0; // How many characters we've copied so far
+
+                // foreach on arrays will get compiled to a regular for-loop by Roslyn
+                foreach (string s in strings)
+                {
+                    Contract.Assert(position <= totalLength - s.Length, "We didn't allocate enough space for the result string!");
+                    FillStringChecked(result, position, s);
+                    position += s.Length;
+                }
+
+                return result;
+            }
+            finally
+            {
+                // Return the rented array once we're done with it
+
+                // We want to clear the array after we're done concat-ing
+                // the strings. This will ensure that the GC can collect
+                // them once they're no longer being used, improving
+                // memory consumption.
+                ArrayCache<string>.Release(strings, clearArray: true);
+            }
         }
 
         [ComVisible(false)]
