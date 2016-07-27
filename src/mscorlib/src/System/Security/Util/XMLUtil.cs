@@ -8,6 +8,9 @@
 ** PURPOSE:  Helpers for XML input & output
 **
 ===========================================================*/
+
+using Internal.Buffers;
+
 namespace System.Security.Util  {
     
     using System;

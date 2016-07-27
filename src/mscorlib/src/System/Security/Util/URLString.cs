@@ -8,6 +8,8 @@
 //  Implementation of membership condition for zones
 //
 
+using Internal.Buffers;
+
 namespace System.Security.Util {
     
     using System;

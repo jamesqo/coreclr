@@ -88,6 +88,7 @@
  */
 
 namespace Microsoft.Win32 {
+    using Internal.Buffers;
     using System;
     using System.Security;
 #if FEATURE_IMPERSONATION

@@ -14,6 +14,8 @@
 **
 ============================================================*/
 
+using Internal.Buffers;
+
 namespace System {
     using Microsoft.Win32;
     using Microsoft.Win32.SafeHandles;
@@ -2724,7 +2726,7 @@ namespace System {
 
                 // As we get the associated rule using the adjusted targetTime, we should use the adjusted year (targetTime.Year) too as after adding the baseOffset, 
                 // sometimes the year value can change if the input datetime was very close to the beginning or the end of the year. Examples of such cases:
-                //      “Libya Standard Time” when used with the date 2011-12-31T23:59:59.9999999Z
+                //      ï¿½Libya Standard Timeï¿½ when used with the date 2011-12-31T23:59:59.9999999Z
                 //      "W. Australia Standard Time" used with date 2005-12-31T23:59:00.0000000Z
                 DateTime targetTime = time + baseOffset;
                 year = targetTime.Year;

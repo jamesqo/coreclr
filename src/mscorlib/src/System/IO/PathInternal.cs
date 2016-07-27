@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Internal.Buffers;
 using Microsoft.Win32;
 using System;
 using System.Diagnostics.Contracts;

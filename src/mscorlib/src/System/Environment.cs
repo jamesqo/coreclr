@@ -11,6 +11,9 @@
 **
 **
 ============================================================*/
+
+using Internal.Buffers;
+
 namespace System {
     using System.IO;
     using System.Security;

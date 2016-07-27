@@ -8,6 +8,8 @@
 // This class identifies a deployment or manifest identity.
 //
 
+using Internal.Buffers;
+
 namespace System {
     using System.Reflection;
     using System.Security;

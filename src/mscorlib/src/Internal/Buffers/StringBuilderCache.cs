@@ -31,9 +31,11 @@
 **            cache and return the resulting string
 **
 ===========================================================*/
+using System;
+using System.Text;
 using System.Threading;
 
-namespace System.Text
+namespace Internal.Buffers
 {
     internal static class StringBuilderCache
     {

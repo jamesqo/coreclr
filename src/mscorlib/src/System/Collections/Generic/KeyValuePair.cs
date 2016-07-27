@@ -13,6 +13,9 @@
 **
 ** 
 ===========================================================*/
+
+using Internal.Buffers;
+
 namespace System.Collections.Generic {
     
     using System;

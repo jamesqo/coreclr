@@ -13,6 +13,8 @@
 **
 =============================================================================*/
 
+using Internal.Buffers;
+
 namespace System {
     using System;
 #if FEATURE_CLICKONCE    
