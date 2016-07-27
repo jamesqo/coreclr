@@ -310,7 +310,7 @@ namespace System {
         // AppendPositiveNumber is an optimization to append a number to a StringBuilder object without
         // doing any boxing and not even creating intermediate string.
         // Note: as we always have positive numbers then it is safe to convert the number to string 
-        // regardless of the current culture as we�ll not have any punctuation marks in the number
+        // regardless of the current culture as well not have any punctuation marks in the number
         //
         private const int ZERO_CHAR_VALUE = (int) '0';
         private static void AppendPositiveNumber(int num, StringBuilder sb)
