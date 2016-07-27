@@ -3394,10 +3394,16 @@ namespace System {
                 string result = FastAllocateString(totalLength);
                 int position = 0; // How many characters we've copied so far
 
-                // foreach on arrays will get compiled to a regular for-loop by Roslyn
-                foreach (string s in strings)
+                // Take note: this is args.Length, not strings.Length, since
+                // ArrayCache is not guaranteed to return an array of exactly
+                // the requested size.
+                for (int i = 0; i < args.Length; i++)
                 {
+                    string s = strings[i];
+
+                    Contract.Assert(s != null);
                     Contract.Assert(position <= totalLength - s.Length, "We didn't allocate enough space for the result string!");
+
                     FillStringChecked(result, position, s);
                     position += s.Length;
                 }
