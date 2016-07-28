@@ -3422,14 +3422,22 @@ namespace System {
                 // Note that we only do this if the array is actually
                 // returned to the pool, otherwise it will be unreachable
                 // after this method, its strings will be GC'd anyway,
-                // and we avoid a call to Array.Clear.
+                // and we avoid clearing a large array.
 
                 if (ArrayCache<string>.TryRelease(strings))
                 {
                     // Since we only used the entries up to args.Length,
                     // just clear that rather than the whole array
 
-                    Array.Clear(strings, 0, args.Length);
+                    // We use a for-loop rather than Array.Clear
+                    // since args.Length is typically small and
+                    // this seems to result in a noticeable impact
+                    // for such arrays
+                    
+                    for (int i = 0; i < args.Length; i++)
+                    {
+                        strings[i] = null;
+                    }
                 }
             }
         }
