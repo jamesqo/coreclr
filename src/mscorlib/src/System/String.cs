@@ -3428,15 +3428,17 @@ namespace System {
                 {
                     // Since we only used the entries up to args.Length,
                     // just clear that rather than the whole array
-
-                    // We use a for-loop rather than Array.Clear
-                    // since args.Length is typically small and
-                    // this seems to result in a noticeable impact
-                    // for such arrays
                     
-                    for (int i = 0; i < args.Length; i++)
+                    if (args.Length <= 36)
                     {
-                        strings[i] = null;
+                        for (int i = 0; i < args.Length; i++)
+                        {
+                            strings[i] = null;
+                        }
+                    }
+                    else
+                    {
+                        Array.Clear(strings, 0, args.Length);
                     }
                 }
             }
