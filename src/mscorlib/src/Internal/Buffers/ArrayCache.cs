@@ -59,7 +59,7 @@ namespace Internal.Buffers
 
         private static int MaxArrayLength => 1024;
 
-        // [ThreadStatic]
+        [ThreadStatic]
         private static T[] t_array; // The cached array we'll hand out to renters; null if we don't have one yet.
 
         public static T[] Acquire(int minimumLength)
