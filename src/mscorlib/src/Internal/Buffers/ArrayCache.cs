@@ -9,54 +9,79 @@ using System.Threading;
 
 namespace Internal.Buffers
 {
-    // This class implements a simple, generic array pool. Ideally
-    // the System.Buffers.ArrayPool API could be used instead of this
-    // (which is more robust), but unfortunately that can't be exposed
-    // to System.Private.CoreLib without a circular dependency.
+    // This class implements a lockless/thread-safe array cache.
+    // All of the state is held in t_array, which is ThreadStatic
+    // so every thread gets its own copy of the field.
 
-    // It can only hold one array at a time (which is stored in t_array),
-    // so it's important to return the array after you're done using it.
-    // (NOTE: It may be worth changing the implementation in the future
-    // to hold multiple arrays if we run into scenarios where that is benefical)
+    // Methods:
+    // Acquire - Rents an array from the cache, or allocates a new one.
+    // Release - Returns the array to the cache if it's not too big.
+    // Fast* - These methods expose some implementation details about the class,
+    //         and make some assumptions about the caller, in exchange for faster
+    //         performance. (see below)
 
-    // This class is lockless/thread-safe since all the state is held in t_array,
-    // which is marked as [ThreadStatic] so every thread gets its own
-    // copy of the field. (In addition, it gets another instantiation for
-    // every different type parameter.)
+    // Like StringBuilderCache, a typical use of this class could be like this:
+    // var array = ArrayCache<T>.Acquire(length);
+    // ...do work with array...
+    // ArrayCache<T>.Release(array); // return when done
 
-    // The methods in here mirror the ones in StringBuilder, with a few extras:
-    // Acquire - Rents or allocates a new array with the specified minimum capacity. (not necessarily clear)
-    // Release - Returns the array so it can be used by another method (or does nothing if it can't be returned)
-    // TryAcquire - Rents an array if available, returns false and does nothing otherwise
-    // TryRelease - Like Release, but it notifies you whether the array was successfully returned
+    // However, this is somewhat inefficient. ThreadStatic field accesses can
+    // be very slow compared to normal ones- and we're making 3 of them.
+    // Acquire does 2, one to read t_array and one to set it to null.
+    // Release also does 1, to set the field back to the original value.
+
+    // Since the last 2 essentially cancel each other out, we can
+    // skip them if we know none of our callees call {Fast}Acquire
+    // before we call {Fast}Release, hence the Fast* overloads. You
+    // can use them like this:
+
+    // bool wasCached;
+    // var array = ArrayCache<T>.FastAcquire(length, out wasCached);
+    // ...do work with array...
+    // ArrayCache<T>.FastRelease(array, wasCached);
+
+    // The wasCached parameter is necessary because it allows us
+    // to not write anything during FastRelease if t_array already
+    // contains that value (which will be the common case).
+    // This leaves only 1 ThreadStatic access: the initial read
+    // of t_array.
+
+    // If t_array was originally null or the minimumLength specified
+    // during FastAcquire was bigger than the currently cached array's
+    // length, we do one additional access to write to t_array.
+
+    // More notes:
 
     // Unlike StringBuilderCache, we do not clear the array when calling Acquire.
     // It's up to you to null it out once you rent the array.
 
-    // IMPORTANT NOTE: You may wish to clear the array before returning it
-    // to the pool (via Array.Clear or a manual for-loop) if:
-    // - T is non-primitive and is/contains reference types, since that
-    //   will free up those references for the GC to collect if they aren't
-    //   being used anywhere else.
-    // - The array contains sensitive data and needs to be zeroed out.
+    // You may also wish to clear the array before returning it, if:
+    // - T is a reference type or contains reference types
+    //   This will allow the GC to collect them as soon as
+    //   you're done with them.
+    // - The array contains sensitive data
+    // Note that for the first scenario above, it may be smarter
+    // to only clear if the array is actually returned to the pool.
+    // (Otherwise if the array is unreachable, the references will
+    // still get collected anyway.) You can do this via
+    // if (ArrayCache<T>.Release(array)) Array.Clear(array, 0, length);
+    // Since the field is ThreadStatic, there's no risk another thread
+    // will see t_array before it's finished clearing.
 
-    // A clearArray parameter is not provided for convenience like in ArrayPool, since:
-    // - In the first scenario above, it may be smarter to only clear it
-    //   if the array is actually returned to the pool. Assuming the array
-    //   you rented is no longer in use after you return it, its contents
-    //   will be GC'd anyway and you avoid clearing out a gigantic array.
-    // - The caller may be able to call Array.Clear more efficiently if it
-    //   knows that only part of the array was used (which will be a common
-    //   case if Acquire returns something with a length > minimumLength).
+    // As a final note, if T is a reference type you may wish to
+    // use the Internal.RefAsValueType wrapper. This will elide
+    // covariant type checks by the CLR, or at least until
+    // https://github.com/dotnet/coreclr/issues/6537 is fixed
+    // for sealed classes. 
 
     internal static class ArrayCache<T>
     {
         // MaxArrayLength: Maximum size of arrays we can hold
 
-        // In the future if the Unsafe class is exposed to System.Private.CoreLib,
-        // we may want to make this dependent on sizeof(T), e.g.
-        // static int MaxArrayLength => 1024 / Unsafe.SizeOf<T>();
-        // That's why this is a property for now.
+        // In the future if there is a way to calculate sizeof(T) here,
+        // we may want to use that, e.g.
+        // static int MaxArrayLength => 1024 / sizeof(T)
+        // That's why this is a property instead of a const.
 
         private static int MaxArrayLength => 1024;
 
