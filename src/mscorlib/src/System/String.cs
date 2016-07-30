@@ -12,6 +12,7 @@
 **
 ===========================================================*/
 
+using Internal;
 using Internal.Buffers;
 
 namespace System {
@@ -3363,27 +3364,39 @@ namespace System {
             // we cant rent/return it to ArrayCache which will
             // reuse existing arrays if avaiable, reducing allocations.
 
-            string[] strings = ArrayCache<string>.Acquire(args.Length);
+            // We use RefAsValueType here, which is a struct wrapper
+            // over a simple ref type, to avoid covariant type checks by
+            // the CLR. Even with all of the other stuff going on this
+            // method, JIT_Stelem_Ref seems to be taking up as much as 15%
+            // of this method's time in PerfView.
+
+            bool wasCached;
+            var strings = ArrayCache<RefAsValueType<string>>.FastAcquire(args.Length, out wasCached);
 
             try
             {
-                int totalLength = 0;
+                long totalLengthLong = 0L;
 
                 for (int i = 0; i < args.Length; i++)
                 {
                     object value = args[i];
 
-                    string toString = value?.ToString() ?? string.Empty; // We need to handle both the cases when value or value.ToString() is null
-                    strings[i] = toString;
+                    string toString = value?.ToString(); // We need to handle both the cases when value or value.ToString() is null
 
-                    totalLength += toString.Length;
-
-                    // Check for overflow
-                    if (totalLength < 0)
+                    if (toString != null)
                     {
-                        throw new OutOfMemoryException();
+                        strings[i].Value = toString;
+
+                        totalLengthLong += toString.Length;
                     }
                 }
+
+                if (totalLengthLong > int.MaxValue)
+                {
+                    throw new OutOfMemoryException();
+                }
+
+                int totalLength = (int)totalLengthLong;
 
                 // If all of the ToStrings are null/empty, just return string.Empty
                 if (totalLength == 0)
@@ -3399,13 +3412,17 @@ namespace System {
                 // the requested size.
                 for (int i = 0; i < args.Length; i++)
                 {
-                    string s = strings[i];
+                    string s = strings[i].Value;
 
-                    Contract.Assert(s != null);
-                    Contract.Assert(position <= totalLength - s.Length, "We didn't allocate enough space for the result string!");
+                    Contract.Assert(s == null || position <= totalLength - s.Length, "We didn't allocate enough space for the result string!");
 
-                    FillStringChecked(result, position, s);
-                    position += s.Length;
+                    if (s != null)
+                    {
+                        FillStringChecked(result, position, s);
+                        position += s.Length;
+
+                        strings[i].Value = null;
+                    }
                 }
 
                 return result;
@@ -3413,34 +3430,8 @@ namespace System {
             finally
             {
                 // Return the rented array once we're done with it
-
-                // We want to clear the array after we're done concat-ing
-                // the strings. This will ensure that the GC can collect
-                // them once they're no longer being used, improving
-                // memory consumption.
-
-                // Note that we only do this if the array is actually
-                // returned to the pool, otherwise it will be unreachable
-                // after this method, its strings will be GC'd anyway,
-                // and we avoid clearing a large array.
-
-                if (ArrayCache<string>.TryRelease(strings))
-                {
-                    // Since we only used the entries up to args.Length,
-                    // just clear that rather than the whole array
-                    
-                    if (args.Length <= 36)
-                    {
-                        for (int i = 0; i < args.Length; i++)
-                        {
-                            strings[i] = null;
-                        }
-                    }
-                    else
-                    {
-                        Array.Clear(strings, 0, args.Length);
-                    }
-                }
+                
+                ArrayCache<RefAsValueType<string>>.FastRelease(strings, wasCached);
             }
         }
 
