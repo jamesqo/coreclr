@@ -88,10 +88,19 @@ namespace Internal.Buffers
         [ThreadStatic]
         private static T[] t_array; // The cached array we'll hand out to renters; null if we don't have one yet.
 
+        // 'Safe' version of FastAcquire- sets t_array to null
+        // if we rented the array.
+        // You will want to do this if one of your callees call
+        // ArrayCache.{Fast}Acquire before you call Release-
+        // but then you already have a suboptimal pattern there
+        // since your callee will always get a new array.
+        // (Unless it's done through something like a virtual call.)
         public static T[] Acquire(int minimumLength)
         {
             bool wasCached;
             T[] result = FastAcquire(minimumLength, out wasCached);
+
+            Contract.Assert(!wasCached || t_array == result);
 
             if (wasCached)
             {
@@ -101,14 +110,20 @@ namespace Internal.Buffers
             return result;
         }
 
+        // Since the caller is unlikely to be inlined anyway (correct usage
+        // of this class constitutes calls to {Fast}Acquire/Release),
+        // we aggressively inline these into the caller.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static T[] FastAcquire(int minimumLength, out bool wasCached)
         {
             Contract.Assert(minimumLength >= 0);
 
-            if (minimumLength < MaxArrayLength)
+            // If minimumLength > MaxArrayLength, we already know it
+            // won't fit the requirements, so don't even both with the
+            // ThreadStatic access
+            if (minimumLength <= MaxArrayLength)
             {
-                T[] localArray = t_array;
+                T[] localArray = t_array; // Cache the ThreadStatic into a local
                 Contract.Assert(localArray == null || localArray.Length <= MaxArrayLength);
 
                 if (localArray != null && localArray.Length >= minimumLength)
@@ -118,10 +133,17 @@ namespace Internal.Buffers
                 }
             }
 
+            // The cached array was either nonexistent or didn't meet our requirements;
+            // return a new array
+
             wasCached = false;
             return new T[minimumLength];
         }
 
+        // If wasCached is true, then t_array should already
+        // be set to the value and we don't need to write it.
+        // Otherwise, we need to update the value of t_array.
+        // This method returns true if wasCached is true.
         public static bool FastRelease(T[] array, bool wasCached)
         {
             Contract.Assert(!wasCached || t_array == array);
@@ -129,6 +151,14 @@ namespace Internal.Buffers
             return wasCached || Release(array);
         }
 
+        // Releases the array if it meets the requirements;
+        // returns whether the array was actually released.
+        // This needs to be tagged AggressiveInlining as well,
+        // since the generated code for thread-static writes
+        // includes a
+        // CORINFO_HELP_ASSIGN_REF
+        // in addition to
+        // CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Release(T[] array)
         {
