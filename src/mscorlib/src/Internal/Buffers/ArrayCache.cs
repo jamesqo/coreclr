@@ -4,6 +4,7 @@
 
 using System;
 using System.Diagnostics.Contracts;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace Internal.Buffers
@@ -62,6 +63,11 @@ namespace Internal.Buffers
         [ThreadStatic]
         private static T[] t_array; // The cached array we'll hand out to renters; null if we don't have one yet.
 
+        // We aggressively inline this method, since most of the real work is done in TryAcquire.
+        // Callees are likely to call Release too if they call this method (plus doing some other
+        // work with the array), so the chance that inlining this will result in loss of inlining
+        // of a callee is minimal.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static T[] Acquire(int minimumLength)
         {
             Contract.Assert(minimumLength >= 0);
