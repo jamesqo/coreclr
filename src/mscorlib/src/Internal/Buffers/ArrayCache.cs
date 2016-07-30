@@ -68,88 +68,34 @@ namespace Internal.Buffers
         // work with the array), so the chance that inlining this will result in loss of inlining
         // of a callee is minimal.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T[] Acquire(int minimumLength)
+        public static T[] Acquire(int minimumLength, out bool wasCached)
         {
             Contract.Assert(minimumLength >= 0);
 
-            // NOTE: This method should not perform any field accesses to t_array,
-            // since that's expensive. TryAcquire should do all the work.
-            
-            T[] result;
-            if (!TryAcquire(minimumLength, out result))
-            {
-                // The cached array is either not present or too small, so allocate another one.
-                result = new T[minimumLength];
-            }
-
-            return result;
-        }
-
-        public static void Release(T[] array)
-        {
-            Contract.Assert(array != null);
-            
-            TryRelease(array);
-        }
-
-        public static bool TryAcquire(int minimumLength, out T[] array)
-        {
-            Contract.Assert(minimumLength >= 0);
-
-            // If this condition is false, we know we won't
-            // have a suitable cached array to hand out and
-            // we can save a thread-static field access (see below)
             if (minimumLength < MaxArrayLength)
             {
-                // Return the same empty array if minimumLength == 0,
-                // since 0-length arrays are immutable
-                if (minimumLength == 0)
-                {
-                    array = Array.Empty<T>();
-                    return true;
-                }
-                
                 T[] localArray = t_array; // It's important to cache the field into a local here, since ThreadStatic field accesses can be expensive
                 Contract.Assert(localArray == null || localArray.Length <= MaxArrayLength);
 
                 if (localArray != null && localArray.Length >= minimumLength)
                 {
-                    // We can use the cached array! Since it's in use, set t_array to null.
-                    t_array = null;
-
-                    // We don't clear the array since unlike StringBuilder, it's common
-                    // that the data will be overwritten soon after. Call Array.Clear yourself
-                    // if you need to do this.
-                    array = localArray;
-                    return true;
+                    wasCached = true;
+                    return localArray;
                 }
             }
 
-            array = null;
-            return false;
+            wasCached = false;
+            return new T[minimumLength];
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryRelease(T[] array)
+        public static bool Release(T[] array)
         {
             Contract.Assert(array != null);
-
+            
             bool shouldRelease = array.Length <= MaxArrayLength;
 
-            // Ignore empty arrays; there's no use caching them
-            // since we return Array.Empty<T> for minimumLength == 0.
-            // For consistency's sake we still return true, since otherwise
-            // 0 would be the only length TryAcquire returns true for and
-            // this method would return false (at least with the current
-            // implementation).
-            if (array.Length != 0 && shouldRelease)
+            if (shouldRelease)
             {
-                // We don't check if we already have an array bigger
-                // than the one given since (as mentioned above)
-                // thread-static field accesses are expensive, and
-                // since Release is usually used in tandem with
-                // Acquire that would very rarely happen.
-
                 t_array = array;
             }
 
