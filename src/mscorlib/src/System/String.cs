@@ -3363,8 +3363,7 @@ namespace System {
             // we cant rent/return it to ArrayCache which will
             // reuse existing arrays if avaiable, reducing allocations.
 
-            bool wasCached;
-            string[] strings = ArrayCache<string>.Acquire(args.Length, out wasCached);
+            string[] strings = ArrayCache<string>.Acquire(args.Length);
 
             try
             {
@@ -3425,7 +3424,7 @@ namespace System {
                 // after this method, its strings will be GC'd anyway,
                 // and we avoid clearing a large array.
 
-                if (wasCached || ArrayCache<string>.Release(strings))
+                if (ArrayCache<string>.TryRelease(strings))
                 {
                     // Since we only used the entries up to args.Length,
                     // just clear that rather than the whole array
