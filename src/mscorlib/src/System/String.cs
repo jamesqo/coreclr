@@ -3373,6 +3373,12 @@ namespace System {
             bool wasCached;
             var strings = ArrayCache<RefAsValueType<string>>.FastAcquire(args.Length, out wasCached);
 
+            // Note: FastAcquire/FastRelease pattern above depends on the fact that none of
+            // this methods callees also call ArrayCache<RefAsValueType<string>>.{Fast}Acquire
+            // before we call Release.
+            // If that happens (it shouldn't), either change the callee to use a simple
+            // new expression or change this to use Acquire/Release.
+
             try
             {
                 long totalLengthLong = 0L;
@@ -3416,11 +3422,15 @@ namespace System {
 
                     Contract.Assert(s == null || position <= totalLength - s.Length, "We didn't allocate enough space for the result string!");
 
+                    // s can be null from the previous loop, in that case we don't need to do anything
                     if (s != null)
                     {
                         FillStringChecked(result, position, s);
                         position += s.Length;
 
+                        // It's important to set the value to null after using it,
+                        // otherwise we could cause a memory leak since the string
+                        // would still be GC-reachable after we return it to the cache.
                         strings[i].Value = null;
                     }
                 }
