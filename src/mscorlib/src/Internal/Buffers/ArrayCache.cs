@@ -129,6 +129,7 @@ namespace Internal.Buffers
             return false;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool TryRelease(T[] array)
         {
             Contract.Assert(array != null);
