@@ -3430,7 +3430,7 @@ namespace System {
 
                         // It's important to set the value to null after using it,
                         // otherwise we could cause a memory leak since the string
-                        // would still be GC-reachable after we return it to the cache.
+                        // would still be GC-reachable after we return the array to the cache.
                         strings[i].Value = null;
                     }
                 }
