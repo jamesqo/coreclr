@@ -452,7 +452,6 @@
   <ItemGroup>
     <InternalSources Include="$(BclSourcesRoot)\Internal\Buffers\ArrayCache.cs" />
     <InternalSources Include="$(BclSourcesRoot)\Internal\Buffers\StringBuilderCache.cs" />
-    <InternalSources Include="$(BclSourcesRoot)\Internal\RefAsValueType.cs" />
     <InternalSources Condition="'$(FeatureCoreclr)' == 'true'" Include="$(BclSourcesRoot)\Internal\Runtime\Augments\EnvironmentAugments.cs" />
   </ItemGroup>
   <ItemGroup>

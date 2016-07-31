@@ -3342,107 +3342,37 @@ namespace System {
         }
 
         [System.Security.SecuritySafeCritical]
-        public static string Concat(params object[] args)
-        {
-            if (args == null)
-            {
+        public static String Concat(params Object[] args) {
+            if (args==null) {
                 throw new ArgumentNullException("args");
             }
             Contract.Ensures(Contract.Result<String>() != null);
             Contract.EndContractBlock();
-
-            // We need to get an intermediary string array
-            // to fill with each of the args' ToString(),
-            // and then just concat that in one operation.
-
-            // This way we avoid any intermediary string representations,
-            // or buffer resizing if we use StringBuilder (although the
-            // latter case is partially alleviated due to StringBuilder's
-            // linked-list style implementation)
-
-            // Since we're not exposing this array publicly,
-            // we cant rent/return it to ArrayCache which will
-            // reuse existing arrays if avaiable, reducing allocations.
-
-            // We use RefAsValueType here, which is a struct wrapper
-            // over a simple ref type, to avoid covariant type checks by
-            // the CLR. Even with all of the other stuff going on this
-            // method, JIT_Stelem_Ref seems to be taking up as much as 15%
-            // of this method's time in PerfView.
-
-            bool wasCached;
-            var strings = ArrayCache<RefAsValueType<string>>.FastAcquire(args.Length, out wasCached);
-
-            // Note: FastAcquire/FastRelease pattern above depends on the fact that none of
-            // this methods callees also call ArrayCache<RefAsValueType<string>>.{Fast}Acquire
-            // before we call Release.
-            // If that happens (it shouldn't), either change the callee to use a simple
-            // new expression or change this to use Acquire/Release.
-
-            try
-            {
-                long totalLengthLong = 0L;
-
-                for (int i = 0; i < args.Length; i++)
-                {
-                    object value = args[i];
-
-                    string toString = value?.ToString(); // We need to handle both the cases when value or value.ToString() is null
-
-                    if (toString != null)
-                    {
-                        strings[i].Value = toString;
-
-                        totalLengthLong += toString.Length;
-                    }
-                }
-
-                if (totalLengthLong > int.MaxValue)
-                {
+    
+            String[] sArgs = new String[args.Length];
+            int totalLength=0;
+            
+            for (int i=0; i<args.Length; i++) {
+                object value = args[i];
+                sArgs[i] = ((value==null)?(String.Empty):(value.ToString()));
+                if (sArgs[i] == null) sArgs[i] = String.Empty; // value.ToString() above could have returned null
+                totalLength += sArgs[i].Length;
+                // check for overflow
+                if (totalLength < 0) {
                     throw new OutOfMemoryException();
                 }
-
-                int totalLength = (int)totalLengthLong;
-
-                // If all of the ToStrings are null/empty, just return string.Empty
-                if (totalLength == 0)
-                {
-                    return string.Empty;
-                }
-
-                string result = FastAllocateString(totalLength);
-                int position = 0; // How many characters we've copied so far
-
-                // Take note: this is args.Length, not strings.Length, since
-                // ArrayCache is not guaranteed to return an array of exactly
-                // the requested size.
-                for (int i = 0; i < args.Length; i++)
-                {
-                    string s = strings[i].Value;
-
-                    Contract.Assert(s == null || position <= totalLength - s.Length, "We didn't allocate enough space for the result string!");
-
-                    // s can be null from the previous loop, in that case we don't need to do anything
-                    if (s != null)
-                    {
-                        FillStringChecked(result, position, s);
-                        position += s.Length;
-
-                        // It's important to set the value to null after using it,
-                        // otherwise we could cause a memory leak since the string
-                        // would still be GC-reachable after we return the array to the cache.
-                        strings[i].Value = null;
-                    }
-                }
-
-                return result;
             }
-            finally
+
+            string result = FastAllocateString(totalLength);
+            int currPos = 0;
+            for (int i = 0; i < sArgs.Length; i++)
             {
-                // Return the rented array once we're done with it
-                
-                ArrayCache<RefAsValueType<string>>.FastRelease(strings, wasCached);
+                Contract.Assert(currPos <= totalLength - sArgs[i].Length, "[String.Concat](currPos <= totalLength - sArgs[i].Length)");
+                FillStringChecked(result, currPos, sArgs[i]);
+                currPos += sArgs[i].Length;
             }
+
+            return result;
         }
 
         [ComVisible(false)]
