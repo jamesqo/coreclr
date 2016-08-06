@@ -28,7 +28,7 @@ set __VSVersion=vs2015
 
 :: Define a prefix for most output progress messages that come from this script. That makes
 :: it easier to see where these are coming from. Note that there is a trailing space here.
-set __MsgPrefix=BUILD:
+set "__MsgPrefix=BUILD: "
 
 :: Set the various build properties here so that CMake and MSBuild can pick them up
 set "__ProjectDir=%~dp0"
