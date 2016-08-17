@@ -11,6 +11,9 @@
 **
 **
 ===========================================================*/
+
+using Internal.Buffers;
+
 namespace System {
     using System.Text;
     using System;
@@ -78,25 +81,106 @@ namespace System {
         }
 
         [ComVisible(false)]
-        public static String Join(String separator, params Object[] values) {
-            if (values==null)
+        public static string Join(string separator, params object[] values)
+        {
+            if (values == null)
                 throw new ArgumentNullException("values");
             Contract.EndContractBlock();
 
             if (values.Length == 0 || values[0] == null)
-                return String.Empty;
+                return string.Empty;
+            
+            string currentString = values[0].ToString();
 
-            StringBuilder result = StringBuilderCache.Acquire();
-
-            result.Append(values[0].ToString());
-
-            for (int i = 1; i < values.Length; i++) {
-                result.Append(separator);
-                if (values[i] != null) {
-                    result.Append(values[i].ToString());
-                }
+            if (values.Length == 1)
+            {
+                // No need to do anything with the separator,
+                // simply return the ToString() of the object
+                return currentString ?? string.Empty; // must handle the case where ToString() is null
             }
-            return StringBuilderCache.GetStringAndRelease(result);
+
+            // totalLengthLong will represent the number of characters in the result string
+            // It has to be a long, in case the total length exceeds int.MaxValue
+            // (at which point we will throw an OOME)
+            int separatorCount = values.Length - 1;
+            long totalLengthLong = (long)separatorCount * separator.Length;
+
+            // We just ToString'd the first string, so add that to the length
+            totalLengthLong += currentString.Length;
+            
+            // Acquire() is used instead of FastAcquire() as we're
+            // making virtual calls to ToString()
+            string[] strings = ArrayCache<string>.Acquire(values.Length);
+
+            try
+            {
+                // Fill the string[] with the values' ToStrings, calculating
+                // the length as we go
+
+                strings[0] = currentString; // Don't forget the first entry
+
+                for (int i = 1; i < values.Length; i++)
+                {
+                    currentString = values[i]?.ToString();
+                    // IMPORTANT NOTE: Do not move this store within the conditional block.
+                    // Arrays obtained from ArrayCache.Acquire() are not guaranteed to be cleared.
+                    strings[i] = currentString;
+
+                    if (currentString != null)
+                    {
+                        totalLengthLong += currentString.Length;
+                    }
+                }
+
+                // Preempt any integer overflow bugs
+                Contract.Assert(totalLengthLong >= 0L);
+                if (totalLengthLong > int.MaxValue)
+                {
+                    throw new OutOfMemoryException();
+                }
+
+                int totalLength = (int)totalLengthLong;
+                if (totalLength == 0)
+                {
+                    return string.Empty;
+                }
+
+                string result = FastAllocateString(totalLength);
+
+                // Take care of the first item specially
+                currentString = strings[0];
+                FillStringChecked(result, 0, currentString);
+                int copiedLength = currentString.Length;
+
+                for (int i = 1; i < strings.Length; i++)
+                {
+                    // Write the separator
+                    FillStringChecked(result, copiedLength, separator);
+                    copiedLength += separator.Length;
+
+                    // Write the next ToString()
+                    string substring = strings[i];
+                    if (substring != null)
+                    {
+                        FillStringChecked(result, copiedLength, substring);
+                        copiedLength += substring.Length;
+
+                        // IMPORTANT NOTE: We need to nil out the string reference
+                        // here, since this array may be returned to ArrayCache
+                        // and persisted in memory.
+                        // Failure to do so means that the ToString results will
+                        // still be GC-reachable, and may cause a memory leak
+                        // since the GC is unable to collect them.
+                        strings[i] = null;
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                ArrayCache<string>.Release(strings);
+            }
         }
 
         [ComVisible(false)]
