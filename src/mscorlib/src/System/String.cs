@@ -601,8 +601,10 @@ namespace System {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         public override bool Equals(Object obj)
         {
+#if !FEATURE_CORECLR
             if (this == null)                        // this is necessary to guard against reverse-pinvokes and
                 throw new NullReferenceException();  // other callers who do not use the callvirt instruction
+#endif // !FEATURE_CORECLR
 
             if (object.ReferenceEquals(this, obj))
                 return true;
@@ -622,8 +624,10 @@ namespace System {
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         public bool Equals(String value)
         {
+#if !FEATURE_CORECLR
             if (this == null)                        // this is necessary to guard against reverse-pinvokes and
                 throw new NullReferenceException();  // other callers who do not use the callvirt instruction
+#endif // !FEATURE_CORECLR
 
             if (object.ReferenceEquals(this, value))
                 return true;
