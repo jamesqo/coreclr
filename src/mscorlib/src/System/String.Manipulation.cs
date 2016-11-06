@@ -1072,7 +1072,7 @@ namespace System
 
             // Our strategy from this point on is as follows:
             // - Find the first occurrence of a separator. If none are found, return this string.
-            // - Allocate a buffer of ints to hold the indices of subsequent occurrences of separators.
+            // - Allocate a buffer of ints to hold the indices of separator occurrences. Store the first index in the first slot.
             //   - stackalloc is used if the remaining area to search is small enough, otherwise buffer pooling is used.
             // - Once that buffer is filled, take the substrings from 0..firstIndex - 1, firstIndex + 1..secondIndex - 1, etc. and return them in the result array.
 
@@ -1081,17 +1081,17 @@ namespace System
                 return new string[] { this };
             }
 
-            // Max number of one-char separators that can lie between firstIndex..Length.
-            // Note: This can be 0 for one-length strings that contain the separator.
-            int indicesLength = Length - firstIndex - 1;
+            // Max number of one-char separators within [firstIndex, Length).
+            int indicesLength = Length - firstIndex;
 
             if (indicesLength <= StackAllocThreshold)
             {
                 int* indices = stackalloc int[indicesLength];
-                int occurrences = MakeSeparatorList(&separator, 1, indices, indicesLength, firstIndex);
+                indices[0] = firstIndex;
+                int occurrences = MakeSeparatorList(&separator, 1, &indices[1], indicesLength - 1, firstIndex);
                 return omitEmptyEntries ?
-                    SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count) :
-                    SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count);
+                    SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, count) :
+                    SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, count);
             }
             else
             {
@@ -1100,10 +1100,11 @@ namespace System
                 {
                     fixed (int* indices = pooledIndices)
                     {
-                        int occurrences = MakeSeparatorList(&separator, 1, indices, indicesLength, firstIndex);
+                        indices[0] = firstIndex;
+                        int occurrences = MakeSeparatorList(&separator, 1, &indices[1], indicesLength - 1, firstIndex);
                         return omitEmptyEntries ?
-                            SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count) :
-                            SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count);
+                            SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, count) :
+                            SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, count);
                     }
                 }
                 finally
