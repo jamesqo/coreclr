@@ -1090,8 +1090,8 @@ namespace System
                 int* indices = stackalloc int[indicesLength];
                 int occurrences = MakeSeparatorList(&separator, 1, indices, indicesLength, firstIndex);
                 return omitEmptyEntries ?
-                    SplitOmitEmptyEntries(indices, occurrences, firstIndex, count) :
-                    SplitKeepEmptyEntries(indices, occurrences, firstIndex, count);
+                    SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count) :
+                    SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count);
             }
             else
             {
@@ -1102,8 +1102,8 @@ namespace System
                     {
                         int occurrences = MakeSeparatorList(&separator, 1, indices, indicesLength, firstIndex);
                         return omitEmptyEntries ?
-                            SplitOmitEmptyEntries(indices, occurrences, firstIndex, count) :
-                            SplitKeepEmptyEntries(indices, occurrences, firstIndex, count);
+                            SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count) :
+                            SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, firstIndex, count);
                     }
                 }
                 finally
@@ -1212,8 +1212,8 @@ namespace System
         //     the original string will be returned regardless of the count. 
         //
 
-        private String[] SplitKeepEmptyEntries(Int32[] sepList, Int32[] lengthList, Int32 defaultLength, Int32 numReplaces, int count) {
-            Contract.Requires(numReplaces >= 0);
+        private String[] SplitKeepEmptyEntries(int* sepList, int sepListLength, int* lengthList, int lengthListLength, int defaultLength, int firstSep, int count) {
+            Contract.Requires(sepListLength >= 0);
             Contract.Requires(count >= 2);
             Contract.Ensures(Contract.Result<String[]>() != null);
         
@@ -1221,13 +1221,15 @@ namespace System
             int arrIndex = 0;
 
             count--;
-            int numActualReplaces = (numReplaces < count) ? numReplaces : count;
+            int numActualReplaces = (sepListLength < count) ? sepListLength : count;
 
             //Allocate space for the new array.
             //+1 for the string from the end of the last replace to the end of the String.
             String[] splitStrings = new String[numActualReplaces+1];
 
             for (int i = 0; i < numActualReplaces && currIndex < Length; i++) {
+                Contract.Assert(i < sepListLength);
+                Contract.Assert(lengthList == null || i < lengthListLength);
                 splitStrings[arrIndex++] = Substring(currIndex, sepList[i]-currIndex );                            
                 currIndex=sepList[i] + ((lengthList == null) ? defaultLength : lengthList[i]);
             }
@@ -1248,8 +1250,8 @@ namespace System
 
         
         // This function will not keep the Empty String 
-        private String[] SplitOmitEmptyEntries(Int32[] sepList, Int32[] lengthList, Int32 defaultLength, Int32 numReplaces, int count) {
-            Contract.Requires(numReplaces >= 0);
+        private String[] SplitOmitEmptyEntries(int* sepList, int sepListLength, int* lengthList, int lengthListLength, int defaultLength, int firstSep, int count) {
+            Contract.Requires(sepListLength >= 0);
             Contract.Requires(count >= 2);
             Contract.Ensures(Contract.Result<String[]>() != null);
 
@@ -1257,21 +1259,26 @@ namespace System
             // filled completely in this function, we will create a 
             // new array and copy string references to that new array.
 
-            int maxItems = (numReplaces < count) ? (numReplaces+1): count ;
+            int maxItems = (sepListLength < count) ? (sepListLength+1): count ;
             String[] splitStrings = new String[maxItems];
 
             int currIndex = 0;
             int arrIndex = 0;
 
             for(int i=0; i< numReplaces && currIndex < Length; i++) {
+                Contract.Assert(i < sepListLength);
+                Contract.Assert(lengthList == null || i < lengthListLength);
                 if( sepList[i]-currIndex > 0) { 
                     splitStrings[arrIndex++] = Substring(currIndex, sepList[i]-currIndex );                            
                 }
                 currIndex=sepList[i] + ((lengthList == null) ? defaultLength : lengthList[i]);
                 if( arrIndex == count -1 )  {
                     // If all the remaining entries at the end are empty, skip them
+                    Contract.Assert(i >= numReplaces - 1 || i + 1 < sepListLength);
                     while( i < numReplaces - 1 && currIndex == sepList[++i]) { 
+                        Contract.Assert(lengthList == null || i < lengthListLength);
                         currIndex += ((lengthList == null) ? defaultLength : lengthList[i]);
+                        Contract.Assert(i >= numReplaces - 1 || i + 1 < sepListLength);
                     }
                     break;
                 }
@@ -1295,35 +1302,32 @@ namespace System
             return stringArray;
         }       
 
-        //--------------------------------------------------------------------    
-        // This function returns the number of the places within this instance where 
-        // characters in Separator occur.
-        // Args: separator  -- A string containing all of the split characters.
-        //       sepList    -- an array of ints for split char indicies.
-        //--------------------------------------------------------------------    
         [System.Security.SecurityCritical]
-        private unsafe int MakeSeparatorList(char* separators, int separatorsLength, int[] sepList) {
+        private unsafe int MakeSeparatorList(char* separators, int separatorsLength, int* sepList, int sepListLength, int firstIndex) {
             Contract.Assert(separatorsLength >= 0, "separatorsLength >= 0");
             int foundCount=0;
 
             if (separators == null || separatorsLength == 0) {
-                fixed (char* pwzChars = &this.m_firstChar) {
+                fixed (char* pChars = &this.m_firstChar) {
+                    char* pwzChars = pChars + firstIndex;
                     //If they passed null or an empty string, look for whitespace.
-                    for (int i=0; i < Length && foundCount < sepList.Length; i++) {
+                    for (int i=0; i < Length && foundCount < sepListLength; i++) {
                         if (Char.IsWhiteSpace(pwzChars[i])) {
+                            Contract.Assert(foundCount < sepListLength);
                             sepList[foundCount++]=i;
                         }
                     }
                 }
             } 
             else {
-                int sepListCount = sepList.Length;
                 //If they passed in a string of chars, actually look for those chars.
-                fixed (char* pwzChars = &this.m_firstChar) {
-                    for (int i=0; i< Length && foundCount < sepListCount; i++) {                        
+                fixed (char* pChars = &this.m_firstChar) {
+                    char* pwzChars = pChars + firstIndex;
+                    for (int i=0; i< Length && foundCount < sepListLength; i++) {                        
                         char* pSep = separators;
                         for (int j = 0; j < separatorsLength; j++, pSep++) {
                            if ( pwzChars[i] == *pSep) {
+                               Contract.Assert(foundCount < sepListLength);
                                sepList[foundCount++]=i;
                                break;
                            }
