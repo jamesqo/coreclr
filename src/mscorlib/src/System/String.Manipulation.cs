@@ -1000,21 +1000,32 @@ namespace System
         [System.Security.SecuritySafeCritical]
         private unsafe string[] SplitInternal(char separator, int count, StringSplitOptions options)
         {
-            return SplitInternal(&separator, 1, count, options);
+            if (count < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NegativeCount"));
+            }
+            if (options < StringSplitOptions.None || options > StringSplitOptions.RemoveEmptyEntries)
+            {
+                throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", options));
+            }
+
+            bool omitEmptyEntries = (options == StringSplitOptions.RemoveEmptyEntries);
+
+            if ((count == 0) || (omitEmptyEntries && Length == 0)) 
+            {           
+                return Array.Empty<string>();
+            }
+
+            if (count == 1)
+            {
+                return new string[] { this };
+            }
+            
+            return SplitInternal(&separator, 1, IndexOf(separator), count, omitEmptyEntries);
         }
 
         [System.Security.SecuritySafeCritical]
         private unsafe string[] SplitInternal(char[] separator, int count, StringSplitOptions options)
-        {
-            fixed (char* pSeparators = separator)
-            {
-                int separatorsLength = separator == null ? 0 : separator.Length;
-                return SplitInternal(pSeparators, separatorsLength, count, options);
-            }
-        }
-
-        [System.Security.SecurityCritical]
-        private unsafe string[] SplitInternal(char* separators, int separatorsLength, int count, StringSplitOptions options)
         {
             if (count < 0)
             {
@@ -1027,7 +1038,7 @@ namespace System
 
             bool omitEmptyEntries = (options == StringSplitOptions.RemoveEmptyEntries);
 
-            if ((count == 0) || (omitEmptyEntries && this.Length == 0)) 
+            if ((count == 0) || (omitEmptyEntries && Length == 0)) 
             {           
 #if FEATURE_CORECLR
                 return Array.Empty<string>();
@@ -1042,24 +1053,64 @@ namespace System
             {
                 return new string[] { this };
             }
-            
-            int[] sepList = new int[Length];            
-            int numReplaces = MakeSeparatorList(separators, separatorsLength, sepList);
-            
-            // Handle the special case of no replaces.
-            if (0 == numReplaces)
+
+            fixed (char* pSeparators = separator)
+            {
+                int separatorsLength = separator?.Length ?? 0;
+                int firstIndex = IndexOfAny(separator ?? s_whiteSpaceChars);
+                return SplitInternal(pSeparators, separatorsLength, firstIndex, count, omitEmptyEntries);
+            }
+        }
+
+        [System.Security.SecurityCritical]
+        private unsafe string[] SplitInternal(char* separators, int separatorsLength, int firstIndex, int count, bool omitEmptyEntries)
+        {
+            Contract.Assert(separators != null || separatorsLength == 0);
+            Contract.Assert(separatorsLength >= 0);
+            Contract.Assert(firstIndex >= -1 && firstIndex < Length);
+            Contract.Assert(count >= 2);
+
+            // Our strategy from this point on is as follows:
+            // - Find the first occurrence of a separator. If none are found, return this string.
+            // - Allocate a buffer of ints to hold the indices of subsequent occurrences of separators.
+            //   - stackalloc is used if the remaining area to search is small enough, otherwise buffer pooling is used.
+            // - Once that buffer is filled, take the substrings from 0..firstIndex - 1, firstIndex + 1..secondIndex - 1, etc. and return them in the result array.
+
+            if (firstIndex < 0)
             {
                 return new string[] { this };
-            }            
-
-            if (omitEmptyEntries) 
-            {
-                return SplitOmitEmptyEntries(sepList, null, 1, numReplaces, count);
             }
-            else 
+
+            // Max number of one-char separators that can lie between firstIndex..Length.
+            // Note: This can be 0 for one-length strings that contain the separator.
+            int indicesLength = Length - firstIndex - 1;
+
+            if (indicesLength <= StackAllocThreshold)
             {
-                return SplitKeepEmptyEntries(sepList, null, 1, numReplaces, count);
-            }            
+                int* indices = stackalloc int[indicesLength];
+                int occurrences = MakeSeparatorList(&separator, 1, indices, indicesLength, firstIndex);
+                return omitEmptyEntries ?
+                    SplitOmitEmptyEntries(indices, occurrences, firstIndex, count) :
+                    SplitKeepEmptyEntries(indices, occurrences, firstIndex, count);
+            }
+            else
+            {
+                int[] pooledIndices = ArrayPool<int>.Shared.Rent(indicesLength);
+                try
+                {
+                    fixed (int* indices = pooledIndices)
+                    {
+                        int occurrences = MakeSeparatorList(&separator, 1, indices, indicesLength, firstIndex);
+                        return omitEmptyEntries ?
+                            SplitOmitEmptyEntries(indices, occurrences, firstIndex, count) :
+                            SplitKeepEmptyEntries(indices, occurrences, firstIndex, count);
+                    }
+                }
+                finally
+                {
+                    ArrayPool<int>.Shared.Return(indices);
+                }
+            }
         }
 
         [ComVisible(false)]
