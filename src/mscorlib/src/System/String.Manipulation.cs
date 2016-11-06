@@ -944,14 +944,14 @@ namespace System
         }
 
         [ComVisible(false)]
-        public String[] Split(char separator, StringSplitOptions options = StringSplitOptions.None) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            return SplitInternal(separator, Int32.MaxValue, options);
+        public string[] Split(char separator, StringSplitOptions options = StringSplitOptions.None)
+        {
+            return SplitInternal(separator, int.MaxValue, options);
         }
 
         [ComVisible(false)]
-        public String[] Split(char separator, int count, StringSplitOptions options = StringSplitOptions.None) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
+        public string[] Split(char separator, int count, StringSplitOptions options = StringSplitOptions.None)
+        {
             return SplitInternal(separator, count, options);
         }
 
@@ -964,9 +964,9 @@ namespace System
         // If the separator is null
         // whitespace (i.e., Character.IsWhitespace) is used as the separator.
         //
-        public String [] Split(params char [] separator) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            return SplitInternal(separator, Int32.MaxValue, StringSplitOptions.None);
+        public string[] Split(params char[] separator)
+        {
+            return SplitInternal(separator, int.MaxValue, StringSplitOptions.None);
         }
 
         // Creates an array of strings by splitting this string at each
@@ -980,32 +980,31 @@ namespace System
         // If there are more than count different strings, the last n-(count-1)
         // elements are concatenated and added as the last String.
         //
-        public string[] Split(char[] separator, int count) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
+        public string[] Split(char[] separator, int count)
+        {
             return SplitInternal(separator, count, StringSplitOptions.None);
         }
 
         [ComVisible(false)]
-        public String[] Split(char[] separator, StringSplitOptions options) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            return SplitInternal(separator, Int32.MaxValue, options);
+        public string[] Split(char[] separator, StringSplitOptions options)
+        {
+            return SplitInternal(separator, int.MaxValue, options);
         }
 
         [ComVisible(false)]
-        public String[] Split(char[] separator, int count, StringSplitOptions options)
+        public string[] Split(char[] separator, int count, StringSplitOptions options)
         {
-            Contract.Ensures(Contract.Result<String[]>() != null);
             return SplitInternal(separator, count, options);
         }
 
         [System.Security.SecuritySafeCritical]
-        private unsafe String[] SplitInternal(char separator, int count, StringSplitOptions options)
+        private unsafe string[] SplitInternal(char separator, int count, StringSplitOptions options)
         {
             return SplitInternal(&separator, 1, count, options);
         }
 
         [System.Security.SecuritySafeCritical]
-        private unsafe String[] SplitInternal(char[] separator, int count, StringSplitOptions options)
+        private unsafe string[] SplitInternal(char[] separator, int count, StringSplitOptions options)
         {
             fixed (char* pSeparators = separator)
             {
@@ -1015,44 +1014,45 @@ namespace System
         }
 
         [System.Security.SecurityCritical]
-        private unsafe String[] SplitInternal(char* separators, int separatorsLength, int count, StringSplitOptions options)
+        private unsafe string[] SplitInternal(char* separators, int separatorsLength, int count, StringSplitOptions options)
         {
             if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count),
-                    Environment.GetResourceString("ArgumentOutOfRange_NegativeCount"));
-
+            {
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NegativeCount"));
+            }
             if (options < StringSplitOptions.None || options > StringSplitOptions.RemoveEmptyEntries)
+            {
                 throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", options));
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            Contract.EndContractBlock();
+            }
 
             bool omitEmptyEntries = (options == StringSplitOptions.RemoveEmptyEntries);
 
             if ((count == 0) || (omitEmptyEntries && this.Length == 0)) 
             {           
 #if FEATURE_CORECLR
-                return EmptyArray<String>.Value;
+                return Array.Empty<string>();
 #else
                 // Keep the old behavior of returning a new empty array
                 // to mitigate any potential compat risk.
-                return new String[0];
+                return new string[0];
 #endif
             }
 
             if (count == 1)
             {
-                return new String[] { this };
+                return new string[] { this };
             }
             
             int[] sepList = new int[Length];            
             int numReplaces = MakeSeparatorList(separators, separatorsLength, sepList);
             
             // Handle the special case of no replaces.
-            if (0 == numReplaces) {
-                return new String[] { this };
+            if (0 == numReplaces)
+            {
+                return new string[] { this };
             }            
 
-            if(omitEmptyEntries) 
+            if (omitEmptyEntries) 
             {
                 return SplitOmitEmptyEntries(sepList, null, 1, numReplaces, count);
             }
@@ -1063,61 +1063,63 @@ namespace System
         }
 
         [ComVisible(false)]
-        public String[] Split(String separator, StringSplitOptions options = StringSplitOptions.None) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            return SplitInternal(separator ?? String.Empty, null, Int32.MaxValue, options);
+        public string[] Split(string separator, StringSplitOptions options = StringSplitOptions.None)
+        {
+            return SplitInternal(separator ?? string.Empty, null, int.MaxValue, options);
         }
 
         [ComVisible(false)]
-        public String[] Split(String separator, Int32 count, StringSplitOptions options = StringSplitOptions.None) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            return SplitInternal(separator ?? String.Empty, null, count, options);
+        public string[] Split(string separator, int count, StringSplitOptions options = StringSplitOptions.None)
+        {
+            return SplitInternal(separator ?? string.Empty, null, count, options);
         }
 
         [ComVisible(false)]
-        public String [] Split(String[] separator, StringSplitOptions options) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
-            return SplitInternal(null, separator, Int32.MaxValue, options);
+        public string[] Split(string[] separator, StringSplitOptions options)
+        {
+            return SplitInternal(null, separator, int.MaxValue, options);
         }
 
         [ComVisible(false)]
-        public String[] Split(String[] separator, Int32 count, StringSplitOptions options) {
-            Contract.Ensures(Contract.Result<String[]>() != null);
+        public string[] Split(string[] separator, int count, StringSplitOptions options)
+        {
             return SplitInternal(null, separator, count, options);
         }
 
-        private String[] SplitInternal(String separator, String[] separators, Int32 count, StringSplitOptions options)
+        private string[] SplitInternal(string separator, string[] separators, int count, StringSplitOptions options)
         {
-            if (count < 0) {
-                throw new ArgumentOutOfRangeException(nameof(count),
-                    Environment.GetResourceString("ArgumentOutOfRange_NegativeCount"));
+            if (count < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NegativeCount"));
             }
-
-            if (options < StringSplitOptions.None || options > StringSplitOptions.RemoveEmptyEntries) {
+            if (options < StringSplitOptions.None || options > StringSplitOptions.RemoveEmptyEntries)
+            {
                 throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", (int)options));
             }
-            Contract.EndContractBlock();
 
             bool omitEmptyEntries = (options == StringSplitOptions.RemoveEmptyEntries);
 
             bool singleSeparator = separator != null;
 
-            if (!singleSeparator && (separators == null || separators.Length == 0)) {
-                return SplitInternal((char[]) null, count, options);
+            if (!singleSeparator && (separators == null || separators.Length == 0))
+            {
+                return SplitInternal((char[])null, count, options);
             }
             
-            if ((count == 0) || (omitEmptyEntries && this.Length ==0)) {
+            if ((count == 0) || (omitEmptyEntries && this.Length == 0))
+            {
 #if FEATURE_CORECLR
-                return EmptyArray<String>.Value;
+                return Array.Empty<string>();
 #else
                 // Keep the old behavior of returning a new empty array
                 // to mitigate any potential compat risk.
-                return new String[0];
+                return new string[0];
 #endif
             }
 
-            if (count == 1 || (singleSeparator && separator.Length == 0)) {
-                return new String[] { this };
+            if (count == 1 || (singleSeparator && separator.Length == 0))
+            {
+                return new string[] { this };
             }
 
             int[] sepList = new int[Length];
@@ -1125,26 +1127,31 @@ namespace System
             int defaultLength;
             int numReplaces;
 
-            if (singleSeparator) {
+            if (singleSeparator)
+            {
                 lengthList = null;
                 defaultLength = separator.Length;
                 numReplaces = MakeSeparatorList(separator, sepList);
             }
-            else {
+            else
+            {
                 lengthList = new int[Length];
                 defaultLength = 0;
                 numReplaces = MakeSeparatorList(separators, sepList, lengthList);
             }
 
             // Handle the special case of no replaces.
-            if (0 == numReplaces) {
-                return new String[] { this };
+            if (0 == numReplaces)
+            {
+                return new string[] { this };
             }
             
-            if (omitEmptyEntries) {
+            if (omitEmptyEntries)
+            {
                 return SplitOmitEmptyEntries(sepList, lengthList, defaultLength, numReplaces, count);
             }
-            else {
+            else
+            {
                 return SplitKeepEmptyEntries(sepList, lengthList, defaultLength, numReplaces, count);
             }
         }                        
