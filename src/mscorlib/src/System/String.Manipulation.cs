@@ -1157,8 +1157,15 @@ namespace System
             {
                 return SplitInternal((char[])null, count, options);
             }
+
+            if (!singleSeparator && separators.Length == 1)
+            {
+                separator = separators[0];
+                separators = null;
+                singleSeparator = true;
+            }
             
-            if ((count == 0) || (omitEmptyEntries && this.Length == 0))
+            if ((count == 0) || (omitEmptyEntries && Length == 0))
             {
 #if FEATURE_CORECLR
                 return Array.Empty<string>();
