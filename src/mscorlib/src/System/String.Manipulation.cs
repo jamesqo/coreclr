@@ -1290,8 +1290,8 @@ namespace System
                             occurrences = MakeSeparatorList(separators, indices, lengths, tableLength);
                         }
                         return omitEmptyEntries ?
-                            SplitOmitEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count) :
-                            SplitKeepEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count);
+                            SplitOmitEmptyEntries(indices, lengths, singleSeparatorLength, occurrences, count) :
+                            SplitKeepEmptyEntries(indices, lengths, singleSeparatorLength, occurrences, count);
                     }
                 }
                 finally
