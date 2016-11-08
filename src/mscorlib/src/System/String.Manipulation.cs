@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.Globalization;
@@ -16,6 +17,8 @@ namespace System
         private const int TrimHead = 0;
         private const int TrimTail = 1;
         private const int TrimBoth = 2;
+
+        private static readonly char[] s_whiteSpaceChars = new[] { ' ', '\t', '\n', '\r' };
 
         [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe private static void FillStringChecked(String dest, int destPos, String src)
@@ -1057,9 +1060,22 @@ namespace System
             fixed (char* pSeparators = separator)
             {
                 int separatorsLength = separator?.Length ?? 0;
-                int firstIndex = IndexOfAny(separator ?? s_whiteSpaceChars);
+                int firstIndex = separator == null ? IndexOfWhiteSpace() : IndexOfAny(separator);
                 return SplitInternal(pSeparators, separatorsLength, firstIndex, count, omitEmptyEntries);
             }
+        }
+
+        private unsafe int IndexOfWhiteSpace()
+        {
+            for (int i = 0; i < Length; i++)
+            {
+                if (char.IsWhiteSpace(this[i]))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         [System.Security.SecurityCritical]
@@ -1070,11 +1086,15 @@ namespace System
             Contract.Assert(firstIndex >= -1 && firstIndex < Length);
             Contract.Assert(count >= 2);
 
-            // Our strategy from this point on is as follows:
-            // - Find the first occurrence of a separator. If none are found, return this string.
-            // - Allocate a buffer of ints to hold the indices of separator occurrences. Store the first index in the first slot.
-            //   - stackalloc is used if the remaining area to search is small enough, otherwise buffer pooling is used.
-            // - Once that buffer is filled, take the substrings from 0..firstIndex - 1, firstIndex + 1..secondIndex - 1, etc. and return them in the result array.
+            /*
+            Our strategy from this point on is as follows:
+            - Find the first occurrence of a separator (done in the caller). If none are found, return this string.
+            - Allocate a buffer of ints to hold the indices of separator occurrences. Store the first index in the first slot.
+              - stackalloc is used if the remaining area to search is small enough, otherwise buffer pooling is used.
+            - Once that buffer is filled, take the substrings from 0..firstIndex - 1, firstIndex + 1..secondIndex - 1, etc. and return them in the result array.
+            */
+
+            const int StackAllocThreshold = 256;
 
             if (firstIndex < 0)
             {
@@ -1082,34 +1102,35 @@ namespace System
             }
 
             // Max number of one-char separators within [firstIndex, Length).
-            int indicesLength = Length - firstIndex;
+            int bufferLength = Length - firstIndex;
 
-            if (indicesLength <= StackAllocThreshold)
+            if (bufferLength <= StackAllocThreshold)
             {
-                int* indices = stackalloc int[indicesLength];
+                // TODO: Refac this into a new method.
+                int* indices = stackalloc int[bufferLength];
                 indices[0] = firstIndex;
-                int occurrences = MakeSeparatorList(&separator, 1, &indices[1], indicesLength - 1, firstIndex);
+                int occurrences = MakeSeparatorList(separators, separatorsLength, &indices[1], bufferLength - 1, firstIndex);
                 return omitEmptyEntries ?
-                    SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, count) :
-                    SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, count);
+                    SplitOmitEmptyEntries(indices, null, occurrences, 1, count) :
+                    SplitKeepEmptyEntries(indices, null, occurrences, 1, count);
             }
             else
             {
-                int[] pooledIndices = ArrayPool<int>.Shared.Rent(indicesLength);
+                int[] buffer = ArrayPool<int>.Shared.Rent(bufferLength);
                 try
                 {
-                    fixed (int* indices = pooledIndices)
+                    fixed (int* indices = buffer)
                     {
                         indices[0] = firstIndex;
-                        int occurrences = MakeSeparatorList(&separator, 1, &indices[1], indicesLength - 1, firstIndex);
+                        int occurrences = MakeSeparatorList(separators, separatorsLength, &indices[1], bufferLength - 1, firstIndex);
                         return omitEmptyEntries ?
-                            SplitOmitEmptyEntries(indices, occurrences, null, 0, 1, count) :
-                            SplitKeepEmptyEntries(indices, occurrences, null, 0, 1, count);
+                            SplitOmitEmptyEntries(indices, null, occurrences, 1, count) :
+                            SplitKeepEmptyEntries(indices, null, occurrences, 1, count);
                     }
                 }
                 finally
                 {
-                    ArrayPool<int>.Shared.Return(indices);
+                    ArrayPool<int>.Shared.Return(buffer);
                 }
             }
         }
@@ -1138,8 +1159,10 @@ namespace System
             return SplitInternal(null, separator, count, options);
         }
 
-        private string[] SplitInternal(string separator, string[] separators, int count, StringSplitOptions options)
+        private unsafe string[] SplitInternal(string separator, string[] separators, int count, StringSplitOptions options)
         {
+            const int StackAllocThreshold = 256;
+
             if (count < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NegativeCount"));
@@ -1181,37 +1204,101 @@ namespace System
                 return new string[] { this };
             }
 
-            int[] sepList = new int[Length];
-            int[] lengthList;
-            int defaultLength;
-            int numReplaces;
+            /*
+            Our strategy from this point on is as follows:
+            - Find the max possible number of separators there can be.
+            - Allocate a buffer of ints to hold the indices of separator occurrences.
+              - stackalloc is used if the remaining area to search is small enough, otherwise buffer pooling is used.
+            - Depending on if there is a single separator or not, we take 2 different steps:
+              - Single separator: Once the buffer is filled, take the substrings from 0..firstIndex - 1,
+                 firstIndex + separator.Length..secondIndex - 1, etc.
+              - Multiple separators: We have to allocate another int buffer, telling us the length we should skip
+                for each separator occurrence. Then we can take the strings from 0..firstIndex - 1,
+                firstIndex + firstLength..secondIndex - 1, etc.
+            - Return the strings in the result array.
+            */
+
+            // The max number of separators we can hold is just our length divided
+            // by the length of the shortest separator.
+            // For example, if we're XXXXXXXX and we're splitting by "AA", then there
+            // will be at most 4 separator indices (assuming all of the Xs were 'A's).
+
+            int smallestSeparatorLength = 1;
 
             if (singleSeparator)
             {
-                lengthList = null;
-                defaultLength = separator.Length;
-                numReplaces = MakeSeparatorList(separator, sepList);
+                smallestSeparatorLength = separator.Length;
             }
             else
             {
-                lengthList = new int[Length];
-                defaultLength = 0;
-                numReplaces = MakeSeparatorList(separators, sepList, lengthList);
+                // Typically, the separators array will be small.
+                // It's ok to make a redundant pass over it to reduce allocations.
+                foreach (string s in separators)
+                {
+                    if (!string.IsNullOrEmpty(s))
+                    {
+                        smallestSeparatorLength = Math.Min(smallestSeparatorLength, s.Length);
+                    }
+                }
             }
 
-            // Handle the special case of no replaces.
-            if (0 == numReplaces)
+            int tableLength = Length / smallestSeparatorLength;
+            int bufferLength = singleSeparator ? tableLength : tableLength * 2;
+
+            if (bufferLength <= StackAllocThreshold)
             {
-                return new string[] { this };
-            }
-            
-            if (omitEmptyEntries)
-            {
-                return SplitOmitEmptyEntries(sepList, lengthList, defaultLength, numReplaces, count);
+                int* indices = stackalloc int[bufferLength];
+
+                int* lengths;
+                int singleSeparatorLength, occurrences;
+
+                if (singleSeparator)
+                {
+                    lengths = null;
+                    singleSeparatorLength = separator.Length;
+                    occurrences = MakeSeparatorList(separator, indices, tableLength);
+                }
+                else
+                {
+                    lengths = &indices[tableLength];
+                    singleSeparatorLength = 0;
+                    occurrences = MakeSeparatorList(separators, indices, lengths, tableLength);
+                }
+                return omitEmptyEntries ?
+                    SplitOmitEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count) :
+                    SplitKeepEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count);
             }
             else
             {
-                return SplitKeepEmptyEntries(sepList, lengthList, defaultLength, numReplaces, count);
+                int[] buffer = ArrayPool<int>.Shared.Rent(tableLength);
+                try
+                {
+                    fixed (int* indices = buffer)
+                    {
+                        int* lengths;
+                        int singleSeparatorLength, occurrences;
+
+                        if (singleSeparator)
+                        {
+                            lengths = null;
+                            singleSeparatorLength = separator.Length;
+                            occurrences = MakeSeparatorList(separator, indices, tableLength);
+                        }
+                        else
+                        {
+                            lengths = &indices[tableLength];
+                            singleSeparatorLength = 0;
+                            occurrences = MakeSeparatorList(separators, indices, lengths, tableLength);
+                        }
+                        return omitEmptyEntries ?
+                            SplitOmitEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count) :
+                            SplitKeepEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count);
+                    }
+                }
+                finally
+                {
+                    ArrayPool<int>.Shared.Return(buffer);
+                }
             }
         }                        
         
@@ -1220,8 +1307,8 @@ namespace System
         //     the original string will be returned regardless of the count. 
         //
 
-        private String[] SplitKeepEmptyEntries(int* sepList, int sepListLength, int* lengthList, int lengthListLength, int defaultLength, int firstSep, int count) {
-            Contract.Requires(sepListLength >= 0);
+        private unsafe String[] SplitKeepEmptyEntries(int* sepList, int* lengthList, int numReplaces, int defaultLength, int count) {
+            Contract.Requires(numReplaces >= 0);
             Contract.Requires(count >= 2);
             Contract.Ensures(Contract.Result<String[]>() != null);
         
@@ -1229,15 +1316,15 @@ namespace System
             int arrIndex = 0;
 
             count--;
-            int numActualReplaces = (sepListLength < count) ? sepListLength : count;
+            int numActualReplaces = (numReplaces < count) ? numReplaces : count;
 
             //Allocate space for the new array.
             //+1 for the string from the end of the last replace to the end of the String.
             String[] splitStrings = new String[numActualReplaces+1];
 
             for (int i = 0; i < numActualReplaces && currIndex < Length; i++) {
-                Contract.Assert(i < sepListLength);
-                Contract.Assert(lengthList == null || i < lengthListLength);
+                Contract.Assert(i < numReplaces);
+                Contract.Assert(lengthList == null || i < numReplaces);
                 splitStrings[arrIndex++] = Substring(currIndex, sepList[i]-currIndex );                            
                 currIndex=sepList[i] + ((lengthList == null) ? defaultLength : lengthList[i]);
             }
@@ -1258,8 +1345,8 @@ namespace System
 
         
         // This function will not keep the Empty String 
-        private String[] SplitOmitEmptyEntries(int* sepList, int sepListLength, int* lengthList, int lengthListLength, int defaultLength, int firstSep, int count) {
-            Contract.Requires(sepListLength >= 0);
+        private unsafe String[] SplitOmitEmptyEntries(int* sepList, int* lengthList, int numReplaces, int defaultLength, int count) {
+            Contract.Requires(numReplaces >= 0);
             Contract.Requires(count >= 2);
             Contract.Ensures(Contract.Result<String[]>() != null);
 
@@ -1267,26 +1354,26 @@ namespace System
             // filled completely in this function, we will create a 
             // new array and copy string references to that new array.
 
-            int maxItems = (sepListLength < count) ? (sepListLength+1): count ;
+            int maxItems = (numReplaces < count) ? (numReplaces+1): count ;
             String[] splitStrings = new String[maxItems];
 
             int currIndex = 0;
             int arrIndex = 0;
 
             for(int i=0; i< numReplaces && currIndex < Length; i++) {
-                Contract.Assert(i < sepListLength);
-                Contract.Assert(lengthList == null || i < lengthListLength);
+                Contract.Assert(i < numReplaces);
+                Contract.Assert(lengthList == null || i < numReplaces);
                 if( sepList[i]-currIndex > 0) { 
                     splitStrings[arrIndex++] = Substring(currIndex, sepList[i]-currIndex );                            
                 }
                 currIndex=sepList[i] + ((lengthList == null) ? defaultLength : lengthList[i]);
                 if( arrIndex == count -1 )  {
                     // If all the remaining entries at the end are empty, skip them
-                    Contract.Assert(i >= numReplaces - 1 || i + 1 < sepListLength);
+                    Contract.Assert(i >= numReplaces - 1 || i + 1 < numReplaces);
                     while( i < numReplaces - 1 && currIndex == sepList[++i]) { 
-                        Contract.Assert(lengthList == null || i < lengthListLength);
+                        Contract.Assert(lengthList == null || i < numReplaces);
                         currIndex += ((lengthList == null) ? defaultLength : lengthList[i]);
-                        Contract.Assert(i >= numReplaces - 1 || i + 1 < sepListLength);
+                        Contract.Assert(i >= numReplaces - 1 || i + 1 < numReplaces);
                     }
                     break;
                 }
@@ -1347,14 +1434,13 @@ namespace System
         }        
         
         [System.Security.SecuritySafeCritical]  // auto-generated
-        private unsafe int MakeSeparatorList(string separator, int* sepList, int tableLength, int firstIndex) {
+        private unsafe int MakeSeparatorList(string separator, int* sepList, int tableLength) {
             Contract.Assert(!string.IsNullOrEmpty(separator), "!string.IsNullOrEmpty(separator)");
 
             int foundCount = 0;
             int currentSepLength = separator.Length;
 
-            fixed (char* pChars = &this.m_firstChar) {
-                char* pwzChars = pChars + firstIndex;
+            fixed (char* pwzChars = &this.m_firstChar) {
                 for (int i = 0; i < Length && foundCount < tableLength; i++) {
                     if (pwzChars[i] == separator[0] && currentSepLength <= Length - i) {
                         if (currentSepLength == 1
@@ -1371,14 +1457,13 @@ namespace System
         }
 
         [System.Security.SecuritySafeCritical]  // auto-generated
-        private unsafe int MakeSeparatorList(String[] separators, int* sepList, int* lengthList, int tableLength, int firstIndex) {
+        private unsafe int MakeSeparatorList(String[] separators, int* sepList, int* lengthList, int tableLength) {
             Contract.Assert(separators != null && separators.Length > 0, "separators != null && separators.Length > 0");
             
             int foundCount = 0;
             int sepCount = separators.Length;
 
-            fixed (char* pChars = &this.m_firstChar) {
-                char* pwzChars = pChars + firstIndex;
+            fixed (char* pwzChars = &this.m_firstChar) {
                 for (int i=0; i< Length && foundCount < tableLength; i++) {                        
                     for( int j =0; j < separators.Length; j++) {
                         String separator = separators[j];
