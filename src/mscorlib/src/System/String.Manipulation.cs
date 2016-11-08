@@ -1311,7 +1311,7 @@ namespace System
         }       
 
         [System.Security.SecurityCritical]
-        private unsafe int MakeSeparatorList(char* separators, int separatorsLength, int* sepList, int sepListLength, int firstIndex) {
+        private unsafe int MakeSeparatorList(char* separators, int separatorsLength, int* sepList, int tableLength, int firstIndex) {
             Contract.Assert(separatorsLength >= 0, "separatorsLength >= 0");
             int foundCount=0;
 
@@ -1319,9 +1319,9 @@ namespace System
                 fixed (char* pChars = &this.m_firstChar) {
                     char* pwzChars = pChars + firstIndex;
                     //If they passed null or an empty string, look for whitespace.
-                    for (int i=0; i < Length && foundCount < sepListLength; i++) {
+                    for (int i=0; i < Length && foundCount < tableLength; i++) {
                         if (Char.IsWhiteSpace(pwzChars[i])) {
-                            Contract.Assert(foundCount < sepListLength);
+                            Contract.Assert(foundCount < tableLength);
                             sepList[foundCount++]=i;
                         }
                     }
@@ -1331,11 +1331,11 @@ namespace System
                 //If they passed in a string of chars, actually look for those chars.
                 fixed (char* pChars = &this.m_firstChar) {
                     char* pwzChars = pChars + firstIndex;
-                    for (int i=0; i< Length && foundCount < sepListLength; i++) {                        
+                    for (int i=0; i< Length && foundCount < tableLength; i++) {                        
                         char* pSep = separators;
                         for (int j = 0; j < separatorsLength; j++, pSep++) {
                            if ( pwzChars[i] == *pSep) {
-                               Contract.Assert(foundCount < sepListLength);
+                               Contract.Assert(foundCount < tableLength);
                                sepList[foundCount++]=i;
                                break;
                            }
@@ -1346,25 +1346,20 @@ namespace System
             return foundCount;
         }        
         
-        //--------------------------------------------------------------------
-        // This function returns number of the places within baseString where
-        // instances of the separator string occurs.
-        // Args: separator  -- the separator
-        //       sepList    -- an array of ints for split string indicies.
-        //--------------------------------------------------------------------
         [System.Security.SecuritySafeCritical]  // auto-generated
-        private unsafe int MakeSeparatorList(string separator, int[] sepList) {
+        private unsafe int MakeSeparatorList(string separator, int* sepList, int tableLength, int firstIndex) {
             Contract.Assert(!string.IsNullOrEmpty(separator), "!string.IsNullOrEmpty(separator)");
 
             int foundCount = 0;
-            int sepListCount = sepList.Length;
             int currentSepLength = separator.Length;
 
-            fixed (char* pwzChars = &this.m_firstChar) {
-                for (int i = 0; i < Length && foundCount < sepListCount; i++) {
+            fixed (char* pChars = &this.m_firstChar) {
+                char* pwzChars = pChars + firstIndex;
+                for (int i = 0; i < Length && foundCount < tableLength; i++) {
                     if (pwzChars[i] == separator[0] && currentSepLength <= Length - i) {
                         if (currentSepLength == 1
                             || String.CompareOrdinal(this, i, separator, 0, currentSepLength) == 0) {
+                            Contract.Assert(foundCount < tableLength);
                             sepList[foundCount] = i;
                             foundCount++;
                             i += currentSepLength - 1;
@@ -1375,23 +1370,16 @@ namespace System
             return foundCount;
         }
 
-        //--------------------------------------------------------------------    
-        // This function returns the number of the places within this instance where 
-        // instances of separator strings occur.
-        // Args: separators -- An array containing all of the split strings.
-        //       sepList    -- an array of ints for split string indicies.
-        //       lengthList -- an array of ints for split string lengths.
-        //--------------------------------------------------------------------    
         [System.Security.SecuritySafeCritical]  // auto-generated
-        private unsafe int MakeSeparatorList(String[] separators, int[] sepList, int[] lengthList) {
+        private unsafe int MakeSeparatorList(String[] separators, int* sepList, int* lengthList, int tableLength, int firstIndex) {
             Contract.Assert(separators != null && separators.Length > 0, "separators != null && separators.Length > 0");
             
             int foundCount = 0;
-            int sepListCount = sepList.Length;
             int sepCount = separators.Length;
 
-            fixed (char* pwzChars = &this.m_firstChar) {
-                for (int i=0; i< Length && foundCount < sepListCount; i++) {                        
+            fixed (char* pChars = &this.m_firstChar) {
+                char* pwzChars = pChars + firstIndex;
+                for (int i=0; i< Length && foundCount < tableLength; i++) {                        
                     for( int j =0; j < separators.Length; j++) {
                         String separator = separators[j];
                         if (String.IsNullOrEmpty(separator)) {
@@ -1401,6 +1389,7 @@ namespace System
                         if ( pwzChars[i] == separator[0] && currentSepLength <= Length - i) {
                             if (currentSepLength == 1 
                                 || String.CompareOrdinal(this, i, separator, 0, currentSepLength) == 0) {
+                                Contract.Assert(foundCount < tableLength);
                                 sepList[foundCount] = i;
                                 lengthList[foundCount] = currentSepLength;
                                 foundCount++;
