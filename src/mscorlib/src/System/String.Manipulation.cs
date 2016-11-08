@@ -1111,8 +1111,8 @@ namespace System
                 indices[0] = firstIndex;
                 int occurrences = MakeSeparatorList(separators, separatorsLength, &indices[1], bufferLength - 1, firstIndex);
                 return omitEmptyEntries ?
-                    SplitOmitEmptyEntries(indices, null, occurrences, 1, count) :
-                    SplitKeepEmptyEntries(indices, null, occurrences, 1, count);
+                    SplitOmitEmptyEntries(indices, null, 1, occurrences, count) :
+                    SplitKeepEmptyEntries(indices, null, 1, occurrences, count);
             }
             else
             {
@@ -1124,8 +1124,8 @@ namespace System
                         indices[0] = firstIndex;
                         int occurrences = MakeSeparatorList(separators, separatorsLength, &indices[1], bufferLength - 1, firstIndex);
                         return omitEmptyEntries ?
-                            SplitOmitEmptyEntries(indices, null, occurrences, 1, count) :
-                            SplitKeepEmptyEntries(indices, null, occurrences, 1, count);
+                            SplitOmitEmptyEntries(indices, null, 1, occurrences, count) :
+                            SplitKeepEmptyEntries(indices, null, 1, occurrences, count);
                     }
                 }
                 finally
@@ -1265,8 +1265,8 @@ namespace System
                     occurrences = MakeSeparatorList(separators, indices, lengths, tableLength);
                 }
                 return omitEmptyEntries ?
-                    SplitOmitEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count) :
-                    SplitKeepEmptyEntries(indices, lengths, occurrences, singleSeparatorLength, count);
+                    SplitOmitEmptyEntries(indices, lengths, singleSeparatorLength, occurrences, count) :
+                    SplitKeepEmptyEntries(indices, lengths, singleSeparatorLength, occurrences, count);
             }
             else
             {
@@ -1307,7 +1307,7 @@ namespace System
         //     the original string will be returned regardless of the count. 
         //
 
-        private unsafe String[] SplitKeepEmptyEntries(int* sepList, int* lengthList, int numReplaces, int defaultLength, int count) {
+        private unsafe String[] SplitKeepEmptyEntries(int* sepList, int* lengthList, int defaultLength, int numReplaces, int count) {
             Contract.Requires(numReplaces >= 0);
             Contract.Requires(count >= 2);
             Contract.Ensures(Contract.Result<String[]>() != null);
@@ -1345,7 +1345,7 @@ namespace System
 
         
         // This function will not keep the Empty String 
-        private unsafe String[] SplitOmitEmptyEntries(int* sepList, int* lengthList, int numReplaces, int defaultLength, int count) {
+        private unsafe String[] SplitOmitEmptyEntries(int* sepList, int* lengthList, int defaultLength, int numReplaces, int count) {
             Contract.Requires(numReplaces >= 0);
             Contract.Requires(count >= 2);
             Contract.Ensures(Contract.Result<String[]>() != null);
