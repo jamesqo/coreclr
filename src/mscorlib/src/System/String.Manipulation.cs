@@ -1106,7 +1106,6 @@ namespace System
 
             if (bufferLength <= StackAllocThreshold)
             {
-                // TODO: Refac this into a new method.
                 int* indices = stackalloc int[bufferLength];
                 indices[0] = firstIndex;
                 int occurrences = MakeSeparatorList(separators, separatorsLength, &indices[1], bufferLength - 1, firstIndex);
