@@ -1851,8 +1851,26 @@ namespace System.Text {
             }
 
             int endIndex = startIndex + count;
-            StringBuilder chunk = this;
-            for (; ; )
+
+            {
+                int endIndexInChunk = endIndex - m_ChunkOffset;
+                int startIndexInChunk = startIndex - m_ChunkOffset;
+                if (endIndexInChunk >= 0)
+                {
+                    int curInChunk = Math.Max(startIndexInChunk, 0);
+                    int endInChunk = Math.Min(m_ChunkLength, endIndexInChunk);
+                    while (curInChunk < endInChunk)
+                    {
+                        if (m_ChunkChars[curInChunk] == oldChar)
+                            m_ChunkChars[curInChunk] = newChar;
+                        curInChunk++;
+                    }
+                }
+                if (startIndexInChunk >= 0)
+                    return this;
+            }
+
+            for (Chunk chunk = m_ChunkPrevious; ; chunk = chunk.m_ChunkPrevious)
             {
                 int endIndexInChunk = endIndex - chunk.m_ChunkOffset;
                 int startIndexInChunk = startIndex - chunk.m_ChunkOffset;
@@ -1868,9 +1886,9 @@ namespace System.Text {
                     }
                 }
                 if (startIndexInChunk >= 0)
-                    break;
-                chunk = chunk.m_ChunkPrevious;
+                    return this;
             }
+
             return this;
         }
 
@@ -2153,7 +2171,7 @@ namespace System.Text {
             int newBlockLength = Math.Max(minBlockCharCount, Math.Min(Length, MaxChunkSize));
 
             // Copy the current block to the new block, and initialize this to point at the new buffer. 
-            m_ChunkPrevious = new StringBuilder(this);
+            m_ChunkPrevious = new Chunk(m_ChunkChars, m_ChunkPrevious, m_ChunkLength);
             m_ChunkOffset += m_ChunkLength;
             m_ChunkLength = 0;
 
@@ -2165,21 +2183,6 @@ namespace System.Text {
             }
             m_ChunkChars = new char[newBlockLength];
 
-            VerifyClassInvariant();
-        }
-
-        /// <summary>
-        /// Used by ExpandByABlock to create a new chunk.  The new chunk is a copied from 'from'
-        /// In particular the buffer is shared.  It is expected that 'from' chunk (which represents
-        /// the whole list, is then updated to point to point to this new chunk. 
-        /// </summary>
-        private StringBuilder(StringBuilder from)
-        {
-            m_ChunkLength = from.m_ChunkLength;
-            m_ChunkOffset = from.m_ChunkOffset;
-            m_ChunkChars = from.m_ChunkChars;
-            m_ChunkPrevious = from.m_ChunkPrevious;
-            m_MaxCapacity = from.m_MaxCapacity;
             VerifyClassInvariant();
         }
 
