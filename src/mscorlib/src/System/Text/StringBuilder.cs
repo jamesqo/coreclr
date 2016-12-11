@@ -39,7 +39,25 @@ namespace System.Text {
     {
         // A StringBuilder is internally represented as a linked list of blocks each of which holds
         // a chunk of the string.  It turns out string as a whole can also be represented as just a chunk, 
-        // so that is what we do.  
+        // so that is what we do.
+
+        internal class Chunk
+        {
+            internal readonly char[] m_ChunkChars;
+            internal readonly Chunk m_ChunkPrevious;
+            internal readonly int m_ChunkLength;
+
+            internal Chunk(char[] chars, Chunk previous, int length)
+            {
+                Contract.Assert(chars?.Length > 0);
+                Contract.Assert(previous != null);
+                Contract.Assert(length > 0);
+
+                m_ChunkChars = chars;
+                m_ChunkPrevious = previous;
+                m_ChunkLength = length;
+            }
+        }  
 
         //
         //
@@ -47,7 +65,7 @@ namespace System.Text {
         //
         //
         internal char[] m_ChunkChars;                // The characters in this block
-        internal StringBuilder m_ChunkPrevious;      // Link to the block logically before this block
+        internal Chunk m_ChunkPrevious;              // Link to the block logically before this block
         internal int m_ChunkLength;                  // The index in m_ChunkChars that represent the end of the block
         internal int m_ChunkOffset;                  // The logical offset (sum of all characters in previous blocks)
         internal int m_MaxCapacity = 0;
@@ -250,26 +268,25 @@ namespace System.Text {
         [System.Diagnostics.Conditional("_DEBUG")]
         private void VerifyClassInvariant() {
             BCLDebug.Correctness((uint)(m_ChunkOffset + m_ChunkChars.Length) >= m_ChunkOffset, "Integer Overflow");
-            StringBuilder currentBlock = this;
-            int maxCapacity = this.m_MaxCapacity;
-            for (; ; )
+
+            Debug.Assert(m_ChunkLength <= m_ChunkChars?.Length);
+            Debug.Assert(m_ChunkLength >= 0);
+            Debug.Assert(m_ChunkOffset >= 0);
+            Debug.Assert(m_ChunkPrevious != null || m_ChunkOffset == 0, "First chunk's offset is not 0.");
+
+            Chunk currentBlock = m_ChunkPrevious;
+            while (currentBlock != null)
             {
-                // All blocks have copy of the maxCapacity.
-                Debug.Assert(currentBlock.m_MaxCapacity == maxCapacity, "Bad maxCapacity");
-                Debug.Assert(currentBlock.m_ChunkChars != null, "Empty Buffer");
+                Contract.Assert(currentBlock.m_ChunkLength <= currentBlock.m_ChunkChars?.Length);
+                Contract.Assert(currentBlock.m_ChunkLength >= 0);
+                Contract.Assert(currentBlock.m_ChunkOffset >= 0);
 
-                Debug.Assert(currentBlock.m_ChunkLength <= currentBlock.m_ChunkChars.Length, "Out of range length");
-                Debug.Assert(currentBlock.m_ChunkLength >= 0, "Negative length");
-                Debug.Assert(currentBlock.m_ChunkOffset >= 0, "Negative offset");
-
-                StringBuilder prevBlock = currentBlock.m_ChunkPrevious;
+                Chunk prevBlock = currentBlock.m_ChunkPrevious;
                 if (prevBlock == null)
                 {
-                    Debug.Assert(currentBlock.m_ChunkOffset == 0, "First chunk's offset is not 0");
-                    break;
+                    Debug.Assert(currentBlock.m_ChunkOffset == 0, "First chunk's offset is not 0.");
                 }
-                // There are no gaps in the blocks. 
-                Debug.Assert(currentBlock.m_ChunkOffset == prevBlock.m_ChunkOffset + prevBlock.m_ChunkLength, "There is a gap between chunks!");
+
                 currentBlock = prevBlock;
             }
         }
@@ -330,14 +347,38 @@ namespace System.Text {
             unsafe {
                 fixed (char* destinationPtr = ret)
                 {
-                    do
+                    // Copy from the characters from this StringBuilder, which is the head of the linked list of chunks.
+                    
+                    int chunkOffset = m_ChunkOffset;
+
+                    if (m_ChunkLength > 0)
                     {
+                        // Copy these into local variables so that they are stable even in the presence of race conditions
+                        char[] sourceArray = m_ChunkChars;
+                        int chunkLength = m_ChunkLength;
+
+                        if ((uint)(chunkLength + chunkOffset) <= (uint)ret.Length && (uint)chunkLength <= (uint)sourceArray.Length)
+                        {
+                            fixed (char* sourcePtr = &sourceArray[0])
+                                string.wstrcpy(destinationPtr + chunkOffset, sourcePtr, chunkLength);
+                        }
+                        else
+                        {
+                            throw new ArgumentOutOfRangeException(nameof(chunkLength), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                        }
+                    }
+
+                    // Walk the linked list of chunks and copy the characters from previous chunks.
+
+                    for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.m_ChunkPrevious)
+                    {
+                        chunkOffset -= chunk.m_ChunkLength;
+
                         if (chunk.m_ChunkLength > 0)
                         {
                             // Copy these into local variables so that they are stable even in the presence of race conditions
-                            char[] sourceArray = chunk.m_ChunkChars;
-                            int chunkOffset = chunk.m_ChunkOffset;
-                            int chunkLength = chunk.m_ChunkLength;
+                            char[] sourceArray = m_ChunkChars;
+                            int chunkLength = m_ChunkLength;
     
                             // Check that we will not overrun our boundaries. 
                             if ((uint)(chunkLength + chunkOffset) <= (uint)ret.Length && (uint)chunkLength <= (uint)sourceArray.Length)
@@ -350,8 +391,7 @@ namespace System.Text {
                                 throw new ArgumentOutOfRangeException(nameof(chunkLength), Environment.GetResourceString("ArgumentOutOfRange_Index"));
                             }
                         }
-                        chunk = chunk.m_ChunkPrevious;
-                    } while (chunk != null);
+                    }
 
                     return ret;
                 }
@@ -383,6 +423,11 @@ namespace System.Text {
 
             VerifyClassInvariant();
 
+            if (length == 0)
+            {
+                return string.Empty;
+            }
+
             StringBuilder chunk = this;
             int sourceEndIndex = startIndex + length;
 
@@ -391,13 +436,55 @@ namespace System.Text {
             unsafe {
                 fixed (char* destinationPtr = ret)
                 {
-                    while (curDestIndex > 0)
+                    int chunkOffset = m_ChunkOffset;
+
                     {
-                        int chunkEndIndex = sourceEndIndex - chunk.m_ChunkOffset;
+                        // Copy from the characters from this StringBuilder, which is the head of the linked list of chunks.
+
+                        int chunkEndIndex = sourceEndIndex - ChunkOffset;
                         if (chunkEndIndex >= 0)
                         {
-                            if (chunkEndIndex > chunk.m_ChunkLength)
-                                chunkEndIndex = chunk.m_ChunkLength;
+                            chunkEndIndex = Math.Min(chunkEndIndex, m_ChunkLength);
+
+                            int countLeft = curDestIndex;
+                            int chunkCount = countLeft;
+                            int chunkStartIndex = chunkEndIndex - countLeft;
+                            if (chunkStartIndex < 0)
+                            {
+                                chunkCount += chunkStartIndex;
+                                chunkStartIndex = 0;
+                            }
+                            curDestIndex -= chunkCount;
+
+                            if (chunkCount > 0)
+                            {
+                                // Copy these into local variables so that they are stable even in the presence of race conditions
+                                char[] sourceArray = chunk.m_ChunkChars;
+    
+                                // Check that we will not overrun our boundaries. 
+                                if ((uint)(chunkCount + curDestIndex) <= (uint)length && (uint)(chunkCount + chunkStartIndex) <= (uint)sourceArray.Length)
+                                {
+                                    fixed (char* sourcePtr = &sourceArray[chunkStartIndex])
+                                        string.wstrcpy(destinationPtr + curDestIndex, sourcePtr, chunkCount);
+                                }
+                                else
+                                {
+                                    throw new ArgumentOutOfRangeException(nameof(chunkCount), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                                }
+                            }
+                        }
+                    }
+
+                    // Walk the linked list of chunks and copy the characters from previous chunks.
+
+                    for (Chunk chunk = m_ChunkPrevious; curDestIndex > 0; chunk = chunk.m_ChunkPrevious)
+                    {
+                        chunkOffset -= chunk.m_ChunkLength;
+
+                        int chunkEndIndex = sourceEndIndex - chunkOffset;
+                        if (chunkEndIndex >= 0)
+                        {
+                            chunkEndIndex = Math.Min(chunkEndIndex, chunk.m_ChunkLength);
     
                             int countLeft = curDestIndex;
                             int chunkCount = countLeft;
@@ -426,7 +513,6 @@ namespace System.Text {
                                 }
                             }
                         }
-                        chunk = chunk.m_ChunkPrevious;
                     }
 
                     return ret;
@@ -505,37 +591,52 @@ namespace System.Text {
         [System.Runtime.CompilerServices.IndexerName("Chars")]
         public char this[int index] {
             get {
-                StringBuilder chunk = this;
-                for (; ; )
+                if ((uint)index >= (uint)Length)
                 {
-                    int indexInBlock = index - chunk.m_ChunkOffset;
+                    throw new IndexOutOfRangeException();
+                }
+                
+                int indexInBlock = index - m_ChunkOffset;
+                if (indexInBlock >= 0)
+                {
+                    return m_ChunkChars[indexInBlock];
+                }
+
+                for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.m_ChunkPrevious)
+                {
+                    indexInBlock += chunk.m_ChunkOffset;
                     if (indexInBlock >= 0)
                     {
-                        if (indexInBlock >= chunk.m_ChunkLength)
-                            throw new IndexOutOfRangeException();
                         return chunk.m_ChunkChars[indexInBlock];
                     }
-                    chunk = chunk.m_ChunkPrevious;
-                    if (chunk == null)
-                        throw new IndexOutOfRangeException();
                 }
+
+                throw new IndexOutOfRangeException();
             }
             set {
-                StringBuilder chunk = this;
-                for (; ; )
+                if ((uint)index >= (uint)Length)
                 {
-                    int indexInBlock = index - chunk.m_ChunkOffset;
+                    throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                }
+
+                int indexInBlock = index - m_ChunkOffset;
+                if (indexInBlock >= 0)
+                {
+                    m_ChunkChars[indexInBlock] = value;
+                    return;
+                }
+
+                for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.m_ChunkPrevious)
+                {
+                    indexInBlock += chunk.m_ChunkOffset;
                     if (indexInBlock >= 0)
                     {
-                        if (indexInBlock >= chunk.m_ChunkLength)
-                            throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_Index"));
                         chunk.m_ChunkChars[indexInBlock] = value;
                         return;
                     }
-                    chunk = chunk.m_ChunkPrevious;
-                    if (chunk == null)
-                        throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_Index"));
                 }
+
+                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_Index"));
             }
         }
 
@@ -750,16 +851,47 @@ namespace System.Text {
 
             VerifyClassInvariant();
 
-            StringBuilder chunk = this;
+            if (count == 0)
+            {
+                return;
+            }
+
             int sourceEndIndex = sourceIndex + count;
             int curDestIndex = destinationIndex + count;
-            while (count > 0)
+            int chunkOffset = m_ChunkOffset;
+
             {
-                int chunkEndIndex = sourceEndIndex - chunk.m_ChunkOffset;
+                // Copy from the characters from this StringBuilder, which is the head of the linked list of chunks.
+
+                int chunkEndIndex = sourceEndIndex - chunkOffset;
                 if (chunkEndIndex >= 0)
                 {
-                    if (chunkEndIndex > chunk.m_ChunkLength)
-                        chunkEndIndex = chunk.m_ChunkLength;
+                    chunkEndIndex = Math.Min(chunkEndIndex, m_ChunkLength);
+
+                    int chunkCount = count;
+                    int chunkStartIndex = chunkEndIndex - count;
+                    if (chunkStartIndex < 0)
+                    {
+                        chunkCount += chunkStartIndex;
+                        chunkStartIndex = 0;
+                    }
+                    curDestIndex -= chunkCount;
+                    count -= chunkCount;
+
+                    // SafeCritical: we ensure that chunkStartIndex + chunkCount are within range of m_chunkChars
+                    // as well as ensuring that curDestIndex + chunkCount are within range of destination
+                    ThreadSafeCopy(m_ChunkChars, chunkStartIndex, destination, curDestIndex, chunkCount);
+                }
+            }
+
+            for (Chunk chunk = m_ChunkPrevious; count > 0; chunk = chunk.m_ChunkPrevious)
+            {
+                // Walk the linked list of chunks and copy the characters from previous chunks.
+
+                int chunkEndIndex = sourceEndIndex - chunkOffset;
+                if (chunkEndIndex >= 0)
+                {
+                    chunkEndIndex = Math.Min(chunkEndIndex, chunk.m_ChunkLength);
 
                     int chunkCount = count;
                     int chunkStartIndex = chunkEndIndex - count;
@@ -775,7 +907,6 @@ namespace System.Text {
                     // as well as ensuring that curDestIndex + chunkCount are within range of destination
                     ThreadSafeCopy(chunk.m_ChunkChars, chunkStartIndex, destination, curDestIndex, chunkCount);
                 }
-                chunk = chunk.m_ChunkPrevious;
             }
         }
 
@@ -1606,40 +1737,17 @@ namespace System.Text {
             if (sb == this)
                 return true;
 
-            StringBuilder thisChunk = this;
-            int thisChunkIndex = thisChunk.m_ChunkLength;
-            StringBuilder sbChunk = sb;
-            int sbChunkIndex = sbChunk.m_ChunkLength;
-            for (; ; )
+            // TODO: This is a placeholder implementation.
+
+            for (int i = Length - 1; i >= 0; i--)
             {
-                // Decrement the pointer to the 'this' StringBuilder
-                --thisChunkIndex;
-                --sbChunkIndex;
-
-                while (thisChunkIndex < 0)
+                if (this[i] != sb[i])
                 {
-                    thisChunk = thisChunk.m_ChunkPrevious;
-                    if (thisChunk == null)
-                        break;
-                    thisChunkIndex = thisChunk.m_ChunkLength + thisChunkIndex;
-                }
-
-                // Decrement the pointer to the 'this' StringBuilder
-                while (sbChunkIndex < 0)
-                {
-                    sbChunk = sbChunk.m_ChunkPrevious;
-                    if (sbChunk == null)
-                        break;
-                    sbChunkIndex = sbChunk.m_ChunkLength + sbChunkIndex;
-                }
-
-                if (thisChunkIndex < 0)
-                    return sbChunkIndex < 0;
-                if (sbChunkIndex < 0)
                     return false;
-                if (thisChunk.m_ChunkChars[thisChunkIndex] != sbChunk.m_ChunkChars[sbChunkIndex])
-                    return false;
+                }
             }
+
+            return true;
         }
 
         public StringBuilder Replace(String oldValue, String newValue, int startIndex, int count)
