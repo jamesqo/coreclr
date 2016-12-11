@@ -32,15 +32,7 @@ namespace System.Text {
     // The methods contained within this class do not return a new StringBuilder
     // object unless specified otherwise.  This class may be used in conjunction with the String
     // class to carry out modifications upon strings.
-    // 
-    // When passing null into a constructor in VJ and VC, the null
-    // should be explicitly type cast.
-    // For Example:
-    // StringBuilder sb1 = new StringBuilder((StringBuilder)null);
-    // StringBuilder sb2 = new StringBuilder((String)null);
-    // Console.WriteLine(sb1);
-    // Console.WriteLine(sb2);
-    // 
+    //
     [System.Runtime.InteropServices.ComVisible(true)]
     [Serializable]
     public sealed class StringBuilder : ISerializable
