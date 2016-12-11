@@ -2099,31 +2099,6 @@ namespace System.Text {
             }
         }
 
-         // Copies the source StringBuilder to the destination IntPtr memory allocated with len bytes.
-        internal unsafe void InternalCopy(IntPtr dest, int len) {
-            if(len ==0)
-                return;
-
-            bool isLastChunk = true;
-            byte* dstPtr = (byte*) dest.ToPointer();
-            StringBuilder currentSrc = FindChunkForByte(len);
-
-            do {
-                int chunkOffsetInBytes = currentSrc.m_ChunkOffset*sizeof(char);
-                int chunkLengthInBytes = currentSrc.m_ChunkLength*sizeof(char);
-                fixed(char* charPtr = &currentSrc.m_ChunkChars[0]) {
-                    byte* srcPtr = (byte*) charPtr;
-                    if(isLastChunk) {
-                        isLastChunk= false;
-                        Buffer.Memcpy(dstPtr + chunkOffsetInBytes, srcPtr, len - chunkOffsetInBytes);
-                    } else {
-                        Buffer.Memcpy(dstPtr + chunkOffsetInBytes, srcPtr, chunkLengthInBytes);
-                    }
-                }
-                currentSrc = currentSrc.m_ChunkPrevious;
-            } while(currentSrc != null);
-        }
-
         /// <summary>
         /// Finds the chunk for the logical index (number of characters in the whole stringbuilder) 'index'
         /// YOu can then get the offset in this chunk by subtracting the m_BlockOffset field from 'index' 
@@ -2139,23 +2114,6 @@ namespace System.Text {
                 ret = ret.m_ChunkPrevious;
 
             Debug.Assert(ret != null, "index not in string");
-            return ret;
-        }
-
-        /// <summary>
-        /// Finds the chunk for the logical byte index 'byteIndex'
-        /// </summary>
-        /// <param name="index"></param>
-        /// <returns></returns>
-        private StringBuilder FindChunkForByte(int byteIndex)
-        {
-            Debug.Assert(0 <= byteIndex && byteIndex <= Length*sizeof(char), "Byte Index not in string");
-
-            StringBuilder ret = this;
-            while (ret.m_ChunkOffset*sizeof(char) > byteIndex)
-                ret = ret.m_ChunkPrevious;
-
-            Debug.Assert(ret != null, "Byte Index not in string");
             return ret;
         }
 
