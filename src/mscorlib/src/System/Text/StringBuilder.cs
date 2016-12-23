@@ -60,7 +60,7 @@ namespace System.Text {
         /// <summary>
         /// The linked previous chunk, or <c>null</c> if there is none.
         /// </summary>
-        internal StringBuilderChunk m_Chunk;
+        internal Chunk m_ChunkPrevious;
 
         /// <summary>
         /// The number of chars usable in the buffer, starting from index 0.
@@ -269,7 +269,7 @@ namespace System.Text {
             m_ChunkChars = new char[persistedCapacity];
             persistedString.CopyTo(0, m_ChunkChars, 0, persistedString.Length);
             m_ChunkLength = persistedString.Length;
-            m_Chunk = null;
+            m_ChunkPrevious = null;
             VerifyClassInvariant();
         }
 
@@ -290,20 +290,6 @@ namespace System.Text {
 
         #endregion
 
-        #region Private properties
-
-        /// <summary>
-        /// The char buffer held at the top-level node.
-        /// </summary>
-        private char[] m_ChunkChars => m_Chunk.Chars;
-
-        /// <summary>
-        /// The number of chars usable at the top-level node.
-        /// </summary>
-        private int m_ChunkLength => m_Chunk.Length;
-
-        #endregion
-
         [System.Diagnostics.Conditional("_DEBUG")]
         private void VerifyClassInvariant()
         {
@@ -312,9 +298,9 @@ namespace System.Text {
             Debug.Assert(m_ChunkLength <= m_ChunkChars?.Length);
             Debug.Assert(m_ChunkLength >= 0);
             Debug.Assert(m_ChunkOffset >= 0);
-            Debug.Assert(m_Chunk.PreviousNode != null || m_ChunkOffset == 0, "First chunk's offset is not 0.");
+            Debug.Assert(m_ChunkPrevious != null || m_ChunkOffset == 0, "First chunk's offset is not 0.");
 
-            for (Chunk chunk = this; chunk != null; chunk = chunk.PreviousNode)
+            for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.Previous)
             {
                 Debug.Assert(chunk.Length <= chunk.Chars?.Length);
                 Debug.Assert(chunk.Length >= 0);
@@ -348,11 +334,14 @@ namespace System.Text {
             get { return m_MaxCapacity; }
         }
 
-        // Read-Only Property 
-        // Ensures that the capacity of this string builder is at least the specified value.  
-        // If capacity is greater than the capacity of this string builder, then the capacity
-        // is set to capacity; otherwise the capacity is unchanged.
-        // 
+        /// <summary>
+        /// Ensures that the capacity of this builder is at least the specified value.
+        /// </summary>
+        /// <param name="capacity">The capacity to ensure.</param>
+        /// <remarks>
+        /// If <paramref name="capacity"/> is greater than this builder's current capacity, then the
+        /// capacity is set exactly to the new value. Otherwise, the capacity remains unchanged.
+        /// </remarks> 
         public int EnsureCapacity(int capacity) {
             if (capacity < 0) {
                 throw new ArgumentOutOfRangeException(nameof(capacity), Environment.GetResourceString("ArgumentOutOfRange_NegativeCapacity"));
@@ -364,6 +353,9 @@ namespace System.Text {
             return Capacity;
         }
 
+        /// <summary>
+        /// Creates a string from this builder.
+        /// </summary>
         public override String ToString() {
             Contract.Ensures(Contract.Result<String>() != null);
 
@@ -373,52 +365,48 @@ namespace System.Text {
                 return String.Empty;
 
             string ret = string.FastAllocateString(Length);
-            StringBuilder chunk = this;
+            
             unsafe {
                 fixed (char* destinationPtr = ret)
                 {
-                    // Copy from the characters from this StringBuilder, which is the head of the linked list of chunks.
-                    
+                    // Copy fields into local variables so that they are stable even in the presence of race conditions
                     int chunkOffset = m_ChunkOffset;
+                    int chunkLength = m_ChunkLength;
 
-                    if (m_ChunkLength > 0)
+                    if (chunkLength > 0)
                     {
-                        // Copy these into local variables so that they are stable even in the presence of race conditions
                         char[] sourceArray = m_ChunkChars;
-                        int m_ChunkLength = m_ChunkLength;
 
-                        if ((uint)(m_ChunkLength + chunkOffset) <= (uint)ret.Length && (uint)m_ChunkLength <= (uint)sourceArray.Length)
+                        if ((uint)(chunkLength + chunkOffset) <= (uint)ret.Length && (uint)chunkLength <= (uint)sourceArray.Length)
                         {
                             fixed (char* sourcePtr = &sourceArray[0])
-                                string.wstrcpy(destinationPtr + chunkOffset, sourcePtr, m_ChunkLength);
+                                string.wstrcpy(destinationPtr + chunkOffset, sourcePtr, chunkLength);
                         }
                         else
                         {
-                            throw new ArgumentOutOfRangeException(nameof(m_ChunkLength), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                            throw new ArgumentOutOfRangeException(nameof(chunkLength), Environment.GetResourceString("ArgumentOutOfRange_Index"));
                         }
                     }
 
-                    // Walk the linked list of chunks and copy the characters from previous chunks.
-
-                    for (Chunk chunk = m_Chunk; chunk != null; chunk = chunk.m_Chunk)
+                    for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.Previous)
                     {
-                        chunkOffset -= chunk.m_ChunkLength;
+                        // Copy fields into local variables so that they are stable even in the presence of race conditions
+                        int chunkLength = chunk.m_ChunkLength;
+                        chunkOffset -= chunkLength;
 
-                        if (chunk.m_ChunkLength > 0)
+                        if (chunkLength > 0)
                         {
-                            // Copy these into local variables so that they are stable even in the presence of race conditions
-                            char[] sourceArray = m_ChunkChars;
-                            int m_ChunkLength = m_ChunkLength;
+                            char[] sourceArray = chunk.m_ChunkChars;
     
                             // Check that we will not overrun our boundaries. 
-                            if ((uint)(m_ChunkLength + chunkOffset) <= (uint)ret.Length && (uint)m_ChunkLength <= (uint)sourceArray.Length)
+                            if ((uint)(chunkLength + chunkOffset) <= (uint)ret.Length && (uint)chunkLength <= (uint)sourceArray.Length)
                             {
                                 fixed (char* sourcePtr = &sourceArray[0])
-                                    string.wstrcpy(destinationPtr + chunkOffset, sourcePtr, m_ChunkLength);
+                                    string.wstrcpy(destinationPtr + chunkOffset, sourcePtr, chunkLength);
                             }
                             else
                             {
-                                throw new ArgumentOutOfRangeException(nameof(m_ChunkLength), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                                throw new ArgumentOutOfRangeException(nameof(chunkLength), Environment.GetResourceString("ArgumentOutOfRange_Index"));
                             }
                         }
                     }
@@ -429,7 +417,11 @@ namespace System.Text {
         }
 
 
-        // Converts a substring of this string builder to a String.
+        /// <summary>
+        /// Creates a string from a substring of this builder.
+        /// </summary>
+        /// <param name="startIndex">The start index of the substring.</param>
+        /// <param name="length">The number of chars in the builder to read.</param>
         public String ToString(int startIndex, int length) {
             Contract.Ensures(Contract.Result<String>() != null);
 
@@ -458,7 +450,6 @@ namespace System.Text {
                 return string.Empty;
             }
 
-            StringBuilder chunk = this;
             int sourceEndIndex = startIndex + length;
 
             string ret = string.FastAllocateString(length);
@@ -466,12 +457,11 @@ namespace System.Text {
             unsafe {
                 fixed (char* destinationPtr = ret)
                 {
+                    // Copy fields into local variables so that they are stable even in the presence of race conditions
                     int chunkOffset = m_ChunkOffset;
 
                     {
-                        // Copy from the characters from this StringBuilder, which is the head of the linked list of chunks.
-
-                        int chunkEndIndex = sourceEndIndex - ChunkOffset;
+                        int chunkEndIndex = sourceEndIndex - chunkOffset;
                         if (chunkEndIndex >= 0)
                         {
                             chunkEndIndex = Math.Min(chunkEndIndex, m_ChunkLength);
@@ -488,8 +478,7 @@ namespace System.Text {
 
                             if (chunkCount > 0)
                             {
-                                // Copy these into local variables so that they are stable even in the presence of race conditions
-                                char[] sourceArray = chunk.m_ChunkChars;
+                                char[] sourceArray = m_ChunkChars;
     
                                 // Check that we will not overrun our boundaries. 
                                 if ((uint)(chunkCount + curDestIndex) <= (uint)length && (uint)(chunkCount + chunkStartIndex) <= (uint)sourceArray.Length)
@@ -505,16 +494,16 @@ namespace System.Text {
                         }
                     }
 
-                    // Walk the linked list of chunks and copy the characters from previous chunks.
-
-                    for (Chunk chunk = m_Chunk; curDestIndex > 0; chunk = chunk.m_Chunk)
+                    for (Chunk chunk = m_ChunkPrevious; curDestIndex > 0; chunk = chunk.m_ChunkPrevious)
                     {
-                        chunkOffset -= chunk.m_ChunkLength;
+                        // Copy fields into local variables so that they are stable even in the presence of race conditions
+                        int chunkLength = chunk.m_ChunkLength;
+                        chunkOffset -= chunkLength;
 
                         int chunkEndIndex = sourceEndIndex - chunkOffset;
                         if (chunkEndIndex >= 0)
                         {
-                            chunkEndIndex = Math.Min(chunkEndIndex, chunk.m_ChunkLength);
+                            chunkEndIndex = Math.Min(chunkEndIndex, chunkLength);
     
                             int countLeft = curDestIndex;
                             int chunkCount = countLeft;
@@ -528,7 +517,6 @@ namespace System.Text {
     
                             if (chunkCount > 0)
                             {
-                                // work off of local variables so that they are stable even in the presence of race conditions
                                 char[] sourceArray = chunk.m_ChunkChars;
     
                                 // Check that we will not overrun our boundaries. 
@@ -578,7 +566,7 @@ namespace System.Text {
 
                 int originalCapacity = Capacity;
 
-                if (value == 0 && m_Chunk == null)
+                if (value == 0 && m_ChunkPrevious == null)
                 {
                     m_ChunkLength = 0;
                     m_ChunkOffset = 0;
@@ -608,7 +596,7 @@ namespace System.Text {
                         Array.Copy(chunk.m_ChunkChars, newArray, chunk.m_ChunkLength);
                         
                         m_ChunkChars = newArray;
-                        m_Chunk = chunk.m_Chunk;                        
+                        m_ChunkPrevious = chunk.m_ChunkPrevious;                        
                         m_ChunkOffset = chunk.m_ChunkOffset;
                     }
                     m_ChunkLength = value - chunk.m_ChunkOffset;
@@ -632,7 +620,7 @@ namespace System.Text {
                     return m_ChunkChars[indexInBlock];
                 }
 
-                for (Chunk chunk = m_Chunk; chunk != null; chunk = chunk.m_Chunk)
+                for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.m_ChunkPrevious)
                 {
                     indexInBlock += chunk.m_ChunkOffset;
                     if (indexInBlock >= 0)
@@ -656,7 +644,7 @@ namespace System.Text {
                     return;
                 }
 
-                for (Chunk chunk = m_Chunk; chunk != null; chunk = chunk.m_Chunk)
+                for (Chunk chunk = m_ChunkPrevious; chunk != null; chunk = chunk.m_ChunkPrevious)
                 {
                     indexInBlock += chunk.m_ChunkOffset;
                     if (indexInBlock >= 0)
@@ -914,7 +902,7 @@ namespace System.Text {
                 }
             }
 
-            for (Chunk chunk = m_Chunk; count > 0; chunk = chunk.m_Chunk)
+            for (Chunk chunk = m_ChunkPrevious; count > 0; chunk = chunk.m_ChunkPrevious)
             {
                 // Walk the linked list of chunks and copy the characters from previous chunks.
 
@@ -1900,7 +1888,7 @@ namespace System.Text {
                     return this;
             }
 
-            for (Chunk chunk = m_Chunk; ; chunk = chunk.m_Chunk)
+            for (Chunk chunk = m_ChunkPrevious; ; chunk = chunk.m_ChunkPrevious)
             {
                 int endIndexInChunk = endIndex - chunk.m_ChunkOffset;
                 int startIndexInChunk = startIndex - chunk.m_ChunkOffset;
@@ -2159,7 +2147,7 @@ namespace System.Text {
 
             StringBuilder ret = this;
             while (ret.m_ChunkOffset > index)
-                ret = ret.m_Chunk;
+                ret = ret.m_ChunkPrevious;
 
             Debug.Assert(ret != null, "index not in string");
             return ret;
@@ -2201,7 +2189,7 @@ namespace System.Text {
             int newBlockLength = Math.Max(minBlockCharCount, Math.Min(Length, MaxChunkSize));
 
             // Copy the current block to the new block, and initialize this to point at the new buffer. 
-            m_Chunk = new Chunk(m_ChunkChars, m_Chunk, m_ChunkLength);
+            m_ChunkPrevious = new Chunk(m_ChunkChars, m_ChunkPrevious, m_ChunkLength);
             m_ChunkOffset += m_ChunkLength;
             m_ChunkLength = 0;
 
@@ -2241,7 +2229,7 @@ namespace System.Text {
             while (chunk.m_ChunkOffset > index)
             {
                 chunk.m_ChunkOffset += count;
-                chunk = chunk.m_Chunk;
+                chunk = chunk.m_ChunkPrevious;
             }
             indexInChunk = index - chunk.m_ChunkOffset;
 
@@ -2260,7 +2248,7 @@ namespace System.Text {
             }
 
             // Allocate space for the new chunk (will go before this one)
-            StringBuilder newChunk = new StringBuilder(Math.Max(count, DefaultCapacity), chunk.m_MaxCapacity, chunk.m_Chunk);
+            StringBuilder newChunk = new StringBuilder(Math.Max(count, DefaultCapacity), chunk.m_MaxCapacity, chunk.m_ChunkPrevious);
             newChunk.m_ChunkLength = count;
 
             // Copy the head of the buffer to the  new buffer. 
@@ -2282,7 +2270,7 @@ namespace System.Text {
                 }
             }
 
-            chunk.m_Chunk = newChunk;           // Wire in the new chunk
+            chunk.m_ChunkPrevious = newChunk;           // Wire in the new chunk
             chunk.m_ChunkOffset += count;
             if (copyCount1 < count)
             {
@@ -2302,7 +2290,7 @@ namespace System.Text {
             Debug.Assert(maxCapacity > 0, "maxCapacity not positive");
             m_ChunkChars = new char[size];
             m_MaxCapacity = maxCapacity;
-            m_Chunk = previousBlock;
+            m_ChunkPrevious = previousBlock;
             if (previousBlock != null)
                 m_ChunkOffset = previousBlock.m_ChunkOffset + previousBlock.m_ChunkLength;
             VerifyClassInvariant();
@@ -2342,7 +2330,7 @@ namespace System.Text {
                 {
                     chunk.m_ChunkOffset -= count;
                 }
-                chunk = chunk.m_Chunk;
+                chunk = chunk.m_ChunkPrevious;
             }
             Debug.Assert(chunk != null, "fell off beginning of string!");
 
@@ -2355,13 +2343,13 @@ namespace System.Text {
                 chunk.m_ChunkLength = indexInChunk;
 
                 // Remove the characters in chunks between start and end chunk
-                endChunk.m_Chunk = chunk;
+                endChunk.m_ChunkPrevious = chunk;
                 endChunk.m_ChunkOffset = chunk.m_ChunkOffset + chunk.m_ChunkLength;
 
                 // If the start is 0 then we can throw away the whole start chunk
                 if (indexInChunk == 0)
                 {
-                    endChunk.m_Chunk = chunk.m_Chunk;
+                    endChunk.m_ChunkPrevious = chunk.m_ChunkPrevious;
                     chunk = endChunk;
                 }
             }
@@ -2376,6 +2364,14 @@ namespace System.Text {
 
             Debug.Assert(chunk != null, "fell off beginning of string!");
             VerifyClassInvariant();
+
+            int length = GetLength(chunk);
         }
+
+        private Chunk GetChars(Chunk chunk) => chunk != null ? chunk.Chars : m_ChunkChars;
+
+        private Chunk GetPrevious(Chunk chunk) => chunk != null ? chunk.Previous : m_ChunkPrevious;
+
+        private Chunk GetLength(Chunk chunk) => chunk != null ? chunk.Length : m_ChunkLength;
     }
 }
