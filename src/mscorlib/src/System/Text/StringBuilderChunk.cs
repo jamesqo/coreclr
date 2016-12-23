@@ -15,7 +15,7 @@ namespace System.Text
         /// Constructs a new chunk.
         /// </summary>
         /// <param name="previous">The chunk which the chars in this chunk logically follow.</param>
-        /// <param name="chars">The underlying char buffer for this chunk.</param>
+        /// <param name="chars">The char buffer for this chunk.</param>
         /// <param name="length">The number of chars usable in the buffer, starting from index 0.</param>
         public StringBuilderChunk(StringBuilderChunk previous, char[] chars, int length)
         {
@@ -33,7 +33,7 @@ namespace System.Text
         public StringBuilderChunk Previous { get; }
 
         /// <summary>
-        /// The underlying char buffer for this chunk.
+        /// The char buffer for this chunk.
         /// </summary>
         public char[] Chars { get; }
 
