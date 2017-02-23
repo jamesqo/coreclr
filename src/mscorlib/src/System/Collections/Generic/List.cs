@@ -32,14 +32,62 @@ namespace System.Collections.Generic
     [Serializable]
     public class List<T> : IList<T>, System.Collections.IList, IReadOnlyList<T>
     {
+        private sealed class BufferTable
+        {
+            private T[][] _buffers;
+            private T[] _current;
+            private int _capacity;
+            private int _size;
+            private int _index;
+
+            public BufferTable()
+            {
+                _buffers = Array.Empty<T[]>();
+            }
+
+            public void Add(T item)
+            {
+                if (_index == _current.Length)
+                {
+                    Resize();
+                }
+
+                _current[_index++] = item;
+            }
+
+            public int Capacity => _capacity;
+
+            public void Clear()
+            {
+                if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                {
+                    int remaining = _size;
+                    foreach (T[] buffer in _buffers)
+                    {
+                        if (remaining == 0)
+                        {
+                            break;
+                        }
+
+                        int toClear = Math.Min(buffer.Length, remaining);
+                        Array.Clear(buffer, 0, toClear);
+                        remaining -= toClear;
+                    }
+                }
+
+                _size = 0;
+            }
+        }
+
         private const int _defaultCapacity = 4;
+        private const int _tableThreshold = 32;
 
         private T[] _items;
         [ContractPublicPropertyName("Count")]
         private int _size;
         private int _version;
         [NonSerialized]
-        private Object _syncRoot;
+        private BufferTable _table;
         
         static readonly T[]  _emptyArray = new T[0];        
             
@@ -101,7 +149,7 @@ namespace System.Collections.Generic
         public int Capacity {
             get {
                 Contract.Ensures(Contract.Result<int>() >= 0);
-                return _items.Length;
+                return _items.Length + (_table?.Capacity ?? 0);
             }
             set {
                 if (value < _size) {
@@ -109,15 +157,27 @@ namespace System.Collections.Generic
                 }
                 Contract.EndContractBlock();
 
-                if (value != _items.Length) {
-                    if (value > 0) {
-                        T[] newItems = new T[value];
-                        if (_size > 0) {
-                            Array.Copy(_items, 0, newItems, 0, _size);
+                if (value != Capacity)
+                {
+                    if (_table != null)
+                    {
+                        int tableCapacity = Math.Max(0, value - _tableThreshold);
+                        _table.Capacity = tableCapacity;
+                    }
+
+                    int itemsCapacity = Math.Min(value, _tableThreshold);
+
+                    if (itemsCapacity > 0)
+                    {
+                        T[] newItems = new T[itemsCapacity];
+                        if (_size > 0)
+                        {
+                            Array.Copy(_items, 0, newItems, 0, Math.Min(_size, _tableThreshold));
                         }
                         _items = newItems;
                     }
-                    else {
+                    else
+                    {
                         _items = _emptyArray;
                     }
                 }
@@ -152,14 +212,8 @@ namespace System.Collections.Generic
         }
     
         // Synchronization root for this object.
-        Object System.Collections.ICollection.SyncRoot {
-            get { 
-                if( _syncRoot == null) {
-                    System.Threading.Interlocked.CompareExchange<Object>(ref _syncRoot, new Object(), null);    
-                }
-                return _syncRoot;
-            }
-        }
+        Object System.Collections.ICollection.SyncRoot => InitializeTable();
+
         // Sets or Gets the element at the given index.
         // 
         public T this[int index] {
@@ -169,7 +223,8 @@ namespace System.Collections.Generic
                     ThrowHelper.ThrowArgumentOutOfRange_IndexException();
                 }
                 Contract.EndContractBlock();
-                return _items[index]; 
+                int tableIndex = index - _tableThreshold;
+                return tableIndex < 0 ? _items[index] : _table[tableIndex];
             }
 
             set {
@@ -177,7 +232,15 @@ namespace System.Collections.Generic
                     ThrowHelper.ThrowArgumentOutOfRange_IndexException();
                 }
                 Contract.EndContractBlock();
-                _items[index] = value;
+                int tableIndex = index - _tableThreshold;
+                if (tableIndex < 0)
+                {
+                    _items[index] = value;
+                }
+                else
+                {
+                    _table[tableIndex] = value;
+                }
                 _version++;
             }
         }
@@ -210,18 +273,25 @@ namespace System.Collections.Generic
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Add(T item)
         {
-            var array = _items;
-            var size = _size;
-            _version++;
-            if ((uint)size < (uint)array.Length)
+            if (_size >= _tableThreshold)
             {
-                _size = size + 1;
-                array[size] = item;
+                (_table ?? InitializeTable()).Add(item);
             }
             else
             {
-                AddWithResize(item);
+                var array = _items;
+                var size = _size;
+                if ((uint)size < (uint)array.Length)
+                {
+                    _size = size + 1;
+                    array[size] = item;
+                }
+                else
+                {
+                    AddWithResize(item);
+                }
             }
+            _version++;
         }
 
         // Non-inline from List.Add to improve its code quality as uncommon path
@@ -232,6 +302,16 @@ namespace System.Collections.Generic
             EnsureCapacity(size + 1);
             _size = size + 1;
             _items[size] = item;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private BufferTable InitializeTable()
+        {
+            if (_table == null)
+            {
+                Interlocked.CompareExchange(ref _table, new BufferTable(), null);
+            }
+            return _table;
         }
 
         int System.Collections.IList.Add(Object item)
@@ -294,19 +374,23 @@ namespace System.Collections.Generic
             Contract.Ensures(Contract.Result<int>() <= index + count);
             Contract.EndContractBlock();
 
-            return Array.BinarySearch<T>(_items, index, count, item, comparer);
+            // TODO: This will be tricky to implement without degrading perf for Comparer<T>.Default.
+            // Maybe the regressions wouldn't be so bad though given they are O(log n).
+            // return Array.BinarySearch<T>(_items, index, count, item, comparer);
         }
     
         public int BinarySearch(T item)
         {
             Contract.Ensures(Contract.Result<int>() <= Count);
-            return BinarySearch(0, Count, item, null);
+            // TODO
+            // return BinarySearch(0, Count, item, null);
         }
 
         public int BinarySearch(T item, IComparer<T> comparer)
         {
             Contract.Ensures(Contract.Result<int>() <= Count);
-            return BinarySearch(0, Count, item, comparer);
+            // TODO
+            // return BinarySearch(0, Count, item, comparer);
         }
 
     
@@ -316,18 +400,18 @@ namespace System.Collections.Generic
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
             {
                 int size = _size;
-                _size = 0;
-                _version++;
                 if (size > 0)
                 {
-                    Array.Clear(_items, 0, size); // Clear the elements so that the gc can reclaim the references.
+                    _size = 0;
+                    Array.Clear(_items, 0, Math.Min(_size, _tableThreshold)); // Clear the elements so that the gc can reclaim the references.
+                    _table?.Clear();
                 }
             }
             else
             {
                 _size = 0;
-                _version++;
             }
+            _version++;
         }
     
         // Contains returns true if the specified element is in the List.
@@ -355,7 +439,8 @@ namespace System.Collections.Generic
             return false;
         }
 
-        public List<TOutput> ConvertAll<TOutput>(Converter<T,TOutput> converter) {
+        public List<TOutput> ConvertAll<TOutput>(Converter<T, TOutput> converter)
+        {
             if( converter == null) {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.converter);
             }
@@ -363,10 +448,9 @@ namespace System.Collections.Generic
             Contract.EndContractBlock();
 
             List<TOutput> list = new List<TOutput>(_size);
-            for( int i = 0; i< _size; i++) {
-                list._items[i] = converter(_items[i]);
+            for( int i = 0; i < _size; i++) {
+                list.Add(converter(this[i]));
             }
-            list._size = _size;
             return list;
         }
 
@@ -386,9 +470,9 @@ namespace System.Collections.Generic
             }
             Contract.EndContractBlock();
 
-            try {                
-                // Array.Copy will check for NULL.
-                Array.Copy(_items, 0, array, arrayIndex, _size);
+            try {
+                // Array.Copy will check for null.
+                Array.Copy(_items, 0, array, arrayIndex, Math.Min(_size, _tableThreshold));
             }
             catch(ArrayTypeMismatchException){
                 ThrowHelper.ThrowArgumentException_Argument_InvalidArrayType();
